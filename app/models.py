@@ -1,0 +1,131 @@
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+import enum
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    profile_picture = Column(String(512), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Veze
+    sent_friend_requests = relationship("Friend", foreign_keys="Friend.user_id", back_populates="user")
+    received_friend_requests = relationship("Friend", foreign_keys="Friend.friend_id", back_populates="friend")
+    sent_messages = relationship("Message", foreign_keys="Message.sender_id", back_populates="sender")
+    received_messages = relationship("Message", foreign_keys="Message.receiver_id", back_populates="receiver")
+    sent_challenges = relationship("Challenge", foreign_keys="Challenge.challenger_id", back_populates="challenger")
+    received_challenges = relationship("Challenge", foreign_keys="Challenge.opponent_id", back_populates="opponent")
+    games_as_white = relationship("Game", foreign_keys="Game.white_player_id", back_populates="white_player")
+    games_as_black = relationship("Game", foreign_keys="Game.black_player_id", back_populates="black_player")
+    tournament_participations = relationship("TournamentParticipant", back_populates="user")
+
+class Friend(Base):
+    __tablename__ = "friends"
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    friend_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    status = Column(Enum("pending", "accepted", "blocked", name="friend_status"), default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id], back_populates="sent_friend_requests")
+    friend = relationship("User", foreign_keys=[friend_id], back_populates="received_friend_requests")
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    receiver_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_messages")
+    receiver = relationship("User", foreign_keys=[receiver_id], back_populates="received_messages")
+
+class Challenge(Base):
+    __tablename__ = "challenges"
+    id = Column(Integer, primary_key=True, index=True)
+    challenger_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    opponent_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(Enum("pending", "accepted", "declined", "expired", name="challenge_status"), default="pending")
+    time_control = Column(JSON)  # npr. {"initial": 300, "increment": 3}
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    challenger = relationship("User", foreign_keys=[challenger_id], back_populates="sent_challenges")
+    opponent = relationship("User", foreign_keys=[opponent_id], back_populates="received_challenges")
+
+class Game(Base):
+    __tablename__ = "games"
+    id = Column(Integer, primary_key=True, index=True)
+    white_player_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    black_player_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(Enum("waiting", "active", "finished", "aborted", name="game_status"), default="waiting")
+    winner = Column(Enum("white", "black", "draw", name="game_result"), nullable=True)
+    current_fen = Column(Text, default="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+    time_control = Column(JSON)
+    started_at = Column(DateTime(timezone=True))
+    ended_at = Column(DateTime(timezone=True))
+
+    white_player = relationship("User", foreign_keys=[white_player_id], back_populates="games_as_white")
+    black_player = relationship("User", foreign_keys=[black_player_id], back_populates="games_as_black")
+    moves = relationship("Move", back_populates="game")
+
+class Move(Base):
+    __tablename__ = "moves"
+    id = Column(Integer, primary_key=True, index=True)
+    game_id = Column(Integer, ForeignKey("games.id"), nullable=False, index=True)
+    move_number = Column(Integer)
+    move_uci = Column(String(10))
+    fen_before = Column(Text)
+    fen_after = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    game = relationship("Game", back_populates="moves")
+
+class Tournament(Base):
+    __tablename__ = "tournaments"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    organizer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type = Column(Enum("knockout", "round_robin", "swiss", name="tournament_type"))
+    status = Column(Enum("registration", "in_progress", "completed", name="tournament_status"), default="registration")
+    start_date = Column(DateTime(timezone=True))
+    max_players = Column(Integer)
+    current_round = Column(Integer, default=0)
+    settings = Column(JSON)  # time control, tie-break pravila
+
+    participants = relationship("TournamentParticipant", back_populates="tournament")
+    matches = relationship("TournamentMatch", back_populates="tournament")
+
+class TournamentParticipant(Base):
+    __tablename__ = "tournament_participants"
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    seed = Column(Integer)  # random redosled za žreb
+    points = Column(Integer, default=0)  # za Swiss
+
+    tournament = relationship("Tournament", back_populates="participants")
+    user = relationship("User", back_populates="tournament_participations")
+
+class TournamentMatch(Base):
+    __tablename__ = "tournament_matches"
+    id = Column(Integer, primary_key=True, index=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False, index=True)
+    round = Column(Integer, nullable=False)
+    white_player_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    black_player_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    game_id = Column(Integer, ForeignKey("games.id"), nullable=True)
+    status = Column(Enum("scheduled", "ongoing", "completed", name="match_status"), default="scheduled")
+    result = Column(Enum("white", "black", "draw", name="match_result"), nullable=True)
+    scheduled_time = Column(DateTime(timezone=True))
+
+    tournament = relationship("Tournament", back_populates="matches")
