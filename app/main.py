@@ -13,14 +13,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-elif message["type"] == "game_chat":
-    game_id = message["game_id"]
-    # pošalji svim učesnicima u toj igri (uključujući pošiljaoca?)
-    broadcast_to_game(game_id, {
-        "type": "game_chat",
-        "from": user["username"],
-        "content": message["content"]
-    })
 # Inicijalizacija baze (opciono, ako želiš automatsko kreiranje tabela)
 @app.on_event("startup")
 async def init_db():
