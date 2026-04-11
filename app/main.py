@@ -39,6 +39,7 @@ app.include_router(leaderboard.router)
 
 @app.on_event("startup")
 async def startup():
+    from app import models  # dodatno osiguranje
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     print("Tabele su kreirane")
