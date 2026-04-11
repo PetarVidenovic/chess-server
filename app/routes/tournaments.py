@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from .. import schemas, models
-from ..database import get_db
-from .users import get_current_user
+from app import schemas, auth, models
+from app.database import get_db
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/tournaments", tags=["turniri"])
 @router.post("/tournaments", response_model=schemas.TournamentOut)

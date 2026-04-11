@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
+import datetime
 
 Base = declarative_base()
 
@@ -18,6 +19,11 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_seen = Column(DateTime(timezone=True), onupdate=func.now())
 
+    wins = Column(Integer, default=0)
+    losses = Column(Integer, default=0)
+    draws = Column(Integer, default=0)
+    rating = Column(Integer, default=1200)
+    
     # Veze
     sent_friend_requests = relationship("Friend", foreign_keys="Friend.user_id", back_populates="user")
     received_friend_requests = relationship("Friend", foreign_keys="Friend.friend_id", back_populates="friend")
@@ -29,8 +35,10 @@ class User(Base):
     games_as_black = relationship("Game", foreign_keys="Game.black_player_id", back_populates="black_player")
     tournament_participations = relationship("TournamentParticipant", back_populates="user")
 
+
 class Friend(Base):
     __tablename__ = "friends"
+    # Kombinovani primarni ključ (user_id, friend_id)
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     friend_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     status = Column(Enum("pending", "accepted", "blocked", name="friend_status"), default="pending")
@@ -38,6 +46,7 @@ class Friend(Base):
 
     user = relationship("User", foreign_keys=[user_id], back_populates="sent_friend_requests")
     friend = relationship("User", foreign_keys=[friend_id], back_populates="received_friend_requests")
+
 
 class Message(Base):
     __tablename__ = "messages"
@@ -51,6 +60,7 @@ class Message(Base):
     sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_messages")
     receiver = relationship("User", foreign_keys=[receiver_id], back_populates="received_messages")
 
+
 class Challenge(Base):
     __tablename__ = "challenges"
     id = Column(Integer, primary_key=True, index=True)
@@ -62,6 +72,7 @@ class Challenge(Base):
 
     challenger = relationship("User", foreign_keys=[challenger_id], back_populates="sent_challenges")
     opponent = relationship("User", foreign_keys=[opponent_id], back_populates="received_challenges")
+
 
 class Game(Base):
     __tablename__ = "games"
@@ -79,6 +90,7 @@ class Game(Base):
     black_player = relationship("User", foreign_keys=[black_player_id], back_populates="games_as_black")
     moves = relationship("Move", back_populates="game")
 
+
 class Move(Base):
     __tablename__ = "moves"
     id = Column(Integer, primary_key=True, index=True)
@@ -90,6 +102,7 @@ class Move(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     game = relationship("Game", back_populates="moves")
+
 
 class Tournament(Base):
     __tablename__ = "tournaments"
@@ -106,6 +119,7 @@ class Tournament(Base):
     participants = relationship("TournamentParticipant", back_populates="tournament")
     matches = relationship("TournamentMatch", back_populates="tournament")
 
+
 class TournamentParticipant(Base):
     __tablename__ = "tournament_participants"
     tournament_id = Column(Integer, ForeignKey("tournaments.id"), primary_key=True)
@@ -115,6 +129,7 @@ class TournamentParticipant(Base):
 
     tournament = relationship("Tournament", back_populates="participants")
     user = relationship("User", back_populates="tournament_participations")
+
 
 class TournamentMatch(Base):
     __tablename__ = "tournament_matches"
@@ -129,3 +144,44 @@ class TournamentMatch(Base):
     scheduled_time = Column(DateTime(timezone=True))
 
     tournament = relationship("Tournament", back_populates="matches")
+
+
+# ========== NOVE KLASE (DODATE NA KRAJ) ==========
+
+class FriendRequest(Base):
+    __tablename__ = "friend_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, default="pending")  # pending, accepted, declined
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class GameOpening(Base):
+    __tablename__ = "game_openings"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    opening_name = Column(String)
+    count = Column(Integer, default=0)
+    as_white = Column(Boolean)
+
+
+class TournamentLive(Base):
+    __tablename__ = "tournaments_live"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    status = Column(String, default="pending")  # pending, active, finished
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    max_players = Column(Integer)
+    current_round = Column(Integer, default=0)
+    bracket = Column(JSON)  # čuva strukturu turnira (parovi)
+
+
+class TournamentParticipantLive(Base):
+    __tablename__ = "tournament_participants_live"
+    id = Column(Integer, primary_key=True, index=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments_live.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    seed = Column(Integer)
+    current_score = Column(Integer, default=0)

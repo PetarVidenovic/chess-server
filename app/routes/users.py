@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from .. import schemas, models
-from ..database import get_db
-from ..auth import get_current_user   # <-- This is the problematic line
+from app import schemas, auth, models
+from app.database import get_db
+from app.auth import get_current_user   # <-- This is the problematic line
 
 router = APIRouter(prefix="/users", tags=["korisnici"])
 

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, ws, leaderboard
+from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, leaderboard
 from app.database import engine, Base
 from app import models  # da se modeli učitaju
 
