@@ -1,22 +1,31 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, leaderboard
 from app.database import engine, Base
-from app import models  # da se modeli učitaju
+from app import models
 
-# 1. Prvo kreiraj app
 app = FastAPI(title="Chess Server", version="1.0")
 
-# 2. Tek onda dodaj CORS middleware
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("WebSocket klijent povezan")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            print(f"Primljeno: {data}")
+            await websocket.send_text(f"Eho: {data}")
+    except WebSocketDisconnect:
+        print("WebSocket klijent prekinuo vezu")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # Dozvoljava svim domenima pristup (za testiranje)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 3. Uključi rute
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(friends.router)
@@ -25,13 +34,11 @@ app.include_router(challenges.router)
 app.include_router(games.router)
 app.include_router(matchmaking.router)
 app.include_router(tournaments.router)
-#app.include_router(ws.router)
+# app.include_router(ws.router)  # ostaje zakomentarisano
 app.include_router(leaderboard.router)
 
-# 4. Startup event (samo jedan)
 @app.on_event("startup")
 async def startup():
-    """Kreiraj tabele pri pokretanju."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     print("Tabele su kreirane")
