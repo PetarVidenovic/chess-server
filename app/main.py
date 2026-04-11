@@ -25,7 +25,7 @@ app.include_router(challenges.router)
 app.include_router(games.router)
 app.include_router(matchmaking.router)
 app.include_router(tournaments.router)
-app.include_router(ws.router)
+#app.include_router(ws.router)
 app.include_router(leaderboard.router)
 
 # 4. Startup event (samo jedan)
