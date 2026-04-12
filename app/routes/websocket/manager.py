@@ -12,7 +12,7 @@ class ConnectionManager:
         await websocket.accept()
         self.active_connections[user_id] = websocket
         self.user_names[user_id] = username
-        print(f"✅ Korisnik {username} (ID {user_id}) se povezao. Trenutno aktivnih: {len(self.active_connections)}")
+        print(f"✅ KONEKCIJA: {username} (ID {user_id}) se povezao. Ukupno: {len(self.active_connections)}")
         await self.broadcast_online_users()
 
 
@@ -27,7 +27,7 @@ class ConnectionManager:
             {"id": uid, "username": self.user_names.get(uid, f"User{uid}")}
             for uid in self.active_connections.keys()
         ]
-        print(f"📡 Šaljem online_users: {users_list}")
+        print(f"📡 BROADCAST: šaljem listu {users_list}")
         message = json.dumps({"type": "online_users", "users": users_list})
         for ws in self.active_connections.values():
             try:

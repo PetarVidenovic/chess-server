@@ -161,3 +161,5 @@ async def websocket_endpoint(
     except Exception as e:
         print(f"Greška u WebSocket-u: {e}")
         await manager.disconnect(user.id)   # ISPRAVLJENO: dodato await
+        # Nakon linije: await manager.connect(user.id, user.username, websocket)
+        print(f"🔌 WebSocket: korisnik {user.username} povezan, pozvan manager.connect")
