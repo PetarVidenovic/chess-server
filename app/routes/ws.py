@@ -157,9 +157,7 @@ async def websocket_endpoint(
                 await websocket.send_text(f"Eho: {data}")
             
     except WebSocketDisconnect:
-        manager.disconnect(user.id)
-        await manager.broadcast_online_users()
+        await manager.disconnect(user.id)   # ISPRAVLJENO: dodato await, uklonjeno dodatno broadcast
     except Exception as e:
         print(f"Greška u WebSocket-u: {e}")
-        manager.disconnect(user.id)
-        await manager.broadcast_online_users()
+        await manager.disconnect(user.id)   # ISPRAVLJENO: dodato await
