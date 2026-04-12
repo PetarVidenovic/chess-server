@@ -1,22 +1,22 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, leaderboard
+from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, leaderboard, ws
 from app.database import engine, Base
 from app import models
 
 app = FastAPI(title="Chess Server", version="1.0")
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    print("WebSocket klijent povezan")
-    try:
-        while True:
-            data = await websocket.receive_text()
-            print(f"Primljeno: {data}")
-            await websocket.send_text(f"Eho: {data}")
-    except WebSocketDisconnect:
-        print("WebSocket klijent prekinuo vezu")
+#@app.websocket("/ws")
+#async def websocket_endpoint(websocket: WebSocket):
+    #await websocket.accept()
+    #print("WebSocket klijent povezan")
+    #try:
+        #while True:
+            #data = await websocket.receive_text()
+            #print(f"Primljeno: {data}")
+            #await websocket.send_text(f"Eho: {data}")
+    #except WebSocketDisconnect:
+        #print("WebSocket klijent prekinuo vezu")
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,7 +34,7 @@ app.include_router(challenges.router)
 app.include_router(games.router)
 app.include_router(matchmaking.router)
 app.include_router(tournaments.router)
-# app.include_router(ws.router)  # ostaje zakomentarisano
+app.include_router(ws.router)  
 app.include_router(leaderboard.router)
 
 @app.on_event("startup")
