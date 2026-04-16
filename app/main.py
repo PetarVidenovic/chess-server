@@ -2,21 +2,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, leaderboard, ws
 from app.database import engine, Base
-from app import models
+from app import models  # uvozi sve modele
 
 app = FastAPI(title="Chess Server", version="1.0")
-
-#@app.websocket("/ws")
-#async def websocket_endpoint(websocket: WebSocket):
-    #await websocket.accept()
-    #print("WebSocket klijent povezan")
-    #try:
-        #while True:
-            #data = await websocket.receive_text()
-            #print(f"Primljeno: {data}")
-            #await websocket.send_text(f"Eho: {data}")
-    #except WebSocketDisconnect:
-        #print("WebSocket klijent prekinuo vezu")
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,7 +27,8 @@ app.include_router(leaderboard.router)
 
 @app.on_event("startup")
 async def startup():
-    from app import models  # dodatno osiguranje
+    # Još jednom uvezi modele da bude sigurno
+    from app import models as models_again
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("Tabele su kreirane")
+    print("Tabele su kreirane (ili već postoje)")
