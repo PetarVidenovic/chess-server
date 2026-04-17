@@ -1,6 +1,7 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
+from app.database import DATABASE_URL, Base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./chess.db")
 
@@ -13,6 +14,13 @@ Base = declarative_base()
 
 AsyncSessionLocal = SessionLocal
 
+async def init_db():
+    engine = create_async_engine(DATABASE_URL)
+    async with engine.begin() as conn:
+        # create_all proverava da li tabela već postoji pre nego što je kreira
+        await conn.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+    
 async def get_db():
     async with SessionLocal() as session:
         yield session
