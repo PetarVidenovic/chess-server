@@ -25,10 +25,9 @@ app.include_router(tournaments.router)
 app.include_router(ws.router)  
 app.include_router(leaderboard.router)
 
+from app.database import init_db
+
 @app.on_event("startup")
-async def startup():
-    # Još jednom uvezi modele da bude sigurno
-    from app import models as models_again
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+async def startup_event():
+    await init_db()
     print("Tabele su kreirane (ili već postoje)")
