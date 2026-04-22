@@ -1,165 +1,223 @@
 import json
+import asyncio
 import uuid
-from fastapi import APIRouter, WebSocket, Query, WebSocketDisconnect
-from app.websocket.manager import manager
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
 from app.auth import get_current_user_from_token
+from app.matchmaking import add_to_queue, remove_from_queue, try_match
+from app.games import update_ratings
 
-router = APIRouter(tags=["websocket"])
+router = APIRouter()
 
-# In-memory skladište za izazove (challenge_id -> podaci)
-pending_challenges = {}
+# Aktivne WebSocket veze (user_id -> websocket)
+active_connections = {}
+
+# Privremeno skladište igara (u produkciji koristi bazu)
+games_store = {}
+
+def create_game(player1_id: int, player2_id: int) -> str:
+    game_id = str(uuid.uuid4())
+    games_store[game_id] = {
+        "white_id": player1_id,
+        "black_id": player2_id,
+        "status": "active",
+        "fen": "start",
+        "moves": []
+    }
+    print(f"🎮 Nova igra: {game_id} ({player1_id} vs {player2_id})")
+    return game_id
+
+def get_opponent_id(game_id: str, current_user_id: int):
+    game = games_store.get(game_id)
+    if not game:
+        return None
+    if game["white_id"] == current_user_id:
+        return game["black_id"]
+    elif game["black_id"] == current_user_id:
+        return game["white_id"]
+    return None
 
 @router.websocket("/ws")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    token: str = Query(...),
-):
-    user = await get_current_user_from_token(token)
-    if not user:
-        await websocket.close(code=1008)
+async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008, reason="Missing token")
         return
 
-    # Poveži korisnika
-    await manager.connect(user.id, user.username, websocket)
+    # Autentifikacija
+    async for db in get_db():
+        user = await get_current_user_from_token(token, db)
+        if not user:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
+        break
+
+    await websocket.accept()
+    active_connections[user.id] = websocket
+    print(f"🔌 {user.username} ({user.id}) povezan")
 
     try:
-        while True:
-            data = await websocket.receive_text()
+        async for message in websocket.iter_text():
             try:
-                msg = json.loads(data)
-            except json.JSONDecodeError:
-                # Ako nije JSON, samo eho (možeš ukloniti ako ne treba)
-                await websocket.send_text(f"Eho: {data}")
+                data = json.loads(message)
+            except:
                 continue
 
-            msg_type = msg.get("type")
+            msg_type = data.get("type")
 
-            # ---------- IZAZOV ----------
-            if msg_type == "challenge":
-                opponent_id = msg.get("opponent_id")
-                if opponent_id and opponent_id in manager.active_connections:
-                    # Generiši jedinstven ID izazova
-                    challenge_id = str(uuid.uuid4())
-                    # Sačuvaj podatke o izazovu
-                    pending_challenges[challenge_id] = {
-                        "challenger_id": user.id,
-                        "challenger_name": user.username,
-                        "opponent_id": opponent_id,
-                        "status": "pending"
-                    }
-                    # Pošalji protivniku poruku o izazovu
-                    target_ws = manager.active_connections[opponent_id]
-                    await target_ws.send_json({
+            # ========== MATCHMAKING ==========
+            if msg_type == "join_queue":
+                await add_to_queue(websocket, user.id, user.rating, user.username)
+                await try_match()
+            elif msg_type == "leave_queue":
+                await remove_from_queue(user.id)
+
+            # ========== IZAZOVI ==========
+            elif msg_type == "challenge":
+                opponent_id = data.get("opponent_id")
+                opponent_ws = active_connections.get(opponent_id)
+                if opponent_ws:
+                    await opponent_ws.send_json({
                         "type": "challenge_received",
-                        "challenge_id": challenge_id,
-                        "from": user.username,
-                        "from_username": user.username,   # klijent očekuje ovo polje
+                        "challenge_id": data.get("challenge_id"),
+                        "from_username": user.username,
                         "from_id": user.id
                     })
-                    # Potvrdi pošiljaocu
-                    await websocket.send_json({
-                        "type": "challenge_sent",
-                        "challenge_id": challenge_id,
-                        "to": opponent_id
-                    })
-                else:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Opponent not online"
-                    })
-
-            # ---------- PRIHVATI IZAZOV ----------
             elif msg_type == "accept_challenge":
-                challenge_id = msg.get("challenge_id")
-                challenge = pending_challenges.get(challenge_id)
-                if challenge and challenge["opponent_id"] == user.id:
-                    # Igrač prihvata izazov
-                    challenger_id = challenge["challenger_id"]
-                    opponent_id = challenge["opponent_id"]
-
-                    # Kreiraj novu igru (ovde generiši game_id, npr. uuid)
-                    game_id = str(uuid.uuid4())
-
-                    # Obavesti oba igrača
-                    for uid in (challenger_id, opponent_id):
-                        ws = manager.active_connections.get(uid)
-                        if ws:
-                            # Odredi boju za svakog igrača
-                            my_color = "beli" if uid == challenger_id else "crni"
-                            opponent_name = user.username if uid == challenger_id else challenge["challenger_name"]
-                            await ws.send_json({
-                                "type": "challenge_accepted",
-                                "game_id": game_id,
-                                "my_color": my_color,
-                                "opponent": opponent_name
-                            })
-
-                    # Ukloni izazov iz skladišta
-                    del pending_challenges[challenge_id]
-
-            # ---------- ODBIJ IZAZOV ----------
+                challenger_id = data.get("from_id")
+                game_id = create_game(challenger_id, user.id)
+                challenger_ws = active_connections.get(challenger_id)
+                if challenger_ws:
+                    await challenger_ws.send_json({
+                        "type": "challenge_accepted",
+                        "game_id": game_id,
+                        "my_color": "white",
+                        "opponent": user.username
+                    })
+                await websocket.send_json({
+                    "type": "challenge_accepted",
+                    "game_id": game_id,
+                    "my_color": "black",
+                    "opponent": await get_username_by_id(challenger_id)
+                })
             elif msg_type == "decline_challenge":
-                challenge_id = msg.get("challenge_id")
-                challenge = pending_challenges.get(challenge_id)
-                if challenge and challenge["opponent_id"] == user.id:
-                    # Obavesti pošiljaoca
-                    challenger_ws = manager.active_connections.get(challenge["challenger_id"])
-                    if challenger_ws:
-                        await challenger_ws.send_json({
-                            "type": "challenge_declined",
-                            "challenge_id": challenge_id
-                        })
-                    del pending_challenges[challenge_id]
+                challenger_id = data.get("from_id")
+                challenger_ws = active_connections.get(challenger_id)
+                if challenger_ws:
+                    await challenger_ws.send_json({
+                        "type": "challenge_declined",
+                        "message": f"{user.username} je odbio izazov"
+                    })
 
-            # ---------- CHAT ----------
-            elif msg_type == "chat":
-                content = msg.get("content")
-                if content:
-                    # Prosledi svim povezanim korisnicima (ili samo u sobu)
-                    for ws in manager.active_connections.values():
-                        try:
-                            await ws.send_json({
-                                "type": "chat",
-                                "sender": user.username,
-                                "content": content
-                            })
-                        except:
-                            pass
-            # ---------- POTEZ (MOVE) ----------
+            # ========== POTEZI ==========
             elif msg_type == "move":
-                game_id = msg.get("game_id")
-                # Pronalazimo ko je protivnik. 
-                # Pošto trenutno nemaš bazu aktivnih igara u ws.py, 
-                # najlakše je da privremeno uradiš broadcast svima ili (bolje)
-                # da klijent šalje opponent_id. 
-                # Ali, pošto tvoj klijent šalje game_id, moramo poslati poruku SVIMA 
-                # osim tebi, ili prosto svima, a klijent će filtrirati po game_id.
-                
-                for uid, ws_conn in manager.active_connections.items():
-                    if uid != user.id:  # Šaljemo svima OSIM onome ko je odigrao potez
-                        try:
-                            await ws_conn.send_json(msg)
-                        except:
-                            pass
+                game_id = data.get("game_id")
+                fen = data.get("fen")
+                move_uci = data.get("move")
+                turn = data.get("turn")
+                if game_id in games_store:
+                    games_store[game_id]["fen"] = fen
+                    games_store[game_id]["moves"].append(move_uci)
+                opponent_id = get_opponent_id(game_id, user.id)
+                if opponent_id:
+                    opponent_ws = active_connections.get(opponent_id)
+                    if opponent_ws:
+                        await opponent_ws.send_json({
+                            "type": "move",
+                            "game_id": game_id,
+                            "fen": fen,
+                            "move": move_uci,
+                            "turn": turn
+                        })
 
-            # ---------- CHAT UNUTAR IGRE ----------
+            # ========== REZULTAT PARTIJE (za ELO) ==========
+            elif msg_type == "game_result":
+                game_id = data.get("game_id")
+                winner_id = data.get("winner_id")
+                loser_id = data.get("loser_id")
+                draw = data.get("draw", False)
+                async for db in get_db():
+                    if draw:
+                        await update_ratings(db, winner_id, loser_id, draw=True)
+                    else:
+                        await update_ratings(db, winner_id, loser_id, draw=False)
+                    break
+                if game_id in games_store:
+                    games_store[game_id]["status"] = "finished"
+
+            # ========== REMI I PREDAJA ==========
+            elif msg_type == "draw_offer":
+                game_id = data.get("game_id")
+                opponent_id = get_opponent_id(game_id, user.id)
+                if opponent_id:
+                    opponent_ws = active_connections.get(opponent_id)
+                    if opponent_ws:
+                        await opponent_ws.send_json({"type": "draw_offer", "game_id": game_id})
+            elif msg_type == "draw_accept":
+                game_id = data.get("game_id")
+                opponent_id = get_opponent_id(game_id, user.id)
+                if opponent_id:
+                    opponent_ws = active_connections.get(opponent_id)
+                    if opponent_ws:
+                        await opponent_ws.send_json({"type": "draw_accept", "game_id": game_id})
+            elif msg_type == "draw_decline":
+                game_id = data.get("game_id")
+                opponent_id = get_opponent_id(game_id, user.id)
+                if opponent_id:
+                    opponent_ws = active_connections.get(opponent_id)
+                    if opponent_ws:
+                        await opponent_ws.send_json({"type": "draw_decline", "game_id": game_id})
+            elif msg_type == "resign":
+                game_id = data.get("game_id")
+                opponent_id = get_opponent_id(game_id, user.id)
+                if opponent_id:
+                    opponent_ws = active_connections.get(opponent_id)
+                    if opponent_ws:
+                        await opponent_ws.send_json({
+                            "type": "game_over",
+                            "result": "resign",
+                            "winner": "opponent"
+                        })
+                    # Ažuriraj rejting
+                    async for db in get_db():
+                        await update_ratings(db, opponent_id, user.id, draw=False)
+                        break
+                    if game_id in games_store:
+                        games_store[game_id]["status"] = "finished"
+
+            # ========== CHAT ==========
+            elif msg_type == "chat":
+                target_id = data.get("target_id")
+                content = data.get("content")
+                target_ws = active_connections.get(target_id)
+                if target_ws:
+                    await target_ws.send_json({
+                        "type": "chat",
+                        "from_username": user.username,
+                        "content": content
+                    })
             elif msg_type == "game_chat":
-                for uid, ws_conn in manager.active_connections.items():
-                    if uid != user.id:
-                        try:
-                            await ws_conn.send_json(msg)
-                        except:
-                            pass
-                        
-            # ---------- OSTALO ----------
-            else:
-                # Nepoznat tip – samo eho
-                await websocket.send_text(f"Eho: {data}")
-            
+                game_id = data.get("game_id")
+                content = data.get("content")
+                opponent_id = get_opponent_id(game_id, user.id)
+                if opponent_id:
+                    opponent_ws = active_connections.get(opponent_id)
+                    if opponent_ws:
+                        await opponent_ws.send_json({
+                            "type": "game_chat",
+                            "from_username": user.username,
+                            "content": content,
+                            "game_id": game_id
+                        })
+
     except WebSocketDisconnect:
-        await manager.disconnect(user.id)   # ISPRAVLJENO: dodato await, uklonjeno dodatno broadcast
-    except Exception as e:
-        print(f"Greška u WebSocket-u: {e}")
-        await manager.disconnect(user.id)   # ISPRAVLJENO: dodato await
-        # Nakon linije: await manager.connect(user.id, user.username, websocket)
-        print(f"🔌 WebSocket: korisnik {user.username} povezan, pozvan manager.connect")
+        print(f"❌ {user.username} diskonektovan")
+        active_connections.pop(user.id, None)
+        await remove_from_queue(user.id)
+
+async def get_username_by_id(user_id: int) -> str:
+    for uid, ws in active_connections.items():
+        if uid == user_id:
+            return f"User_{user_id}"  # U stvarnosti dohvati iz baze
+    return "Nepoznat"
