@@ -10,8 +10,18 @@ from app.games import update_ratings
 
 router = APIRouter()
 
-# Aktivne WebSocket veze (user_id -> websocket)
+# Aktivne WebSocket veze: {user_id: {"ws": websocket, "username": username}}
 active_connections = {}
+
+async def broadcast_online_users():
+    """Šalje listu online korisnika svim povezanim klijentima."""
+    users_list = [{"id": uid, "username": info["username"]} for uid, info in active_connections.items()]
+    message = json.dumps({"type": "online_users", "users": users_list})
+    for info in active_connections.values():
+        try:
+            await info["ws"].send_text(message)
+        except:
+            pass
 
 # Privremeno skladište igara (u produkciji koristi bazu)
 games_store = {}
@@ -52,8 +62,12 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     await websocket.accept()
-    active_connections[user.id] = websocket
+    # Sačuvaj vezu sa korisničkim imenom
+    active_connections[user.id] = {"ws": websocket, "username": user.username}
     print(f"🔌 {user.username} ({user.id}) povezan")
+
+    # Obavesti sve o novom korisniku
+    await broadcast_online_users()
 
     try:
         async for message in websocket.iter_text():
@@ -74,9 +88,9 @@ async def websocket_endpoint(websocket: WebSocket):
             # ========== IZAZOVI ==========
             elif msg_type == "challenge":
                 opponent_id = data.get("opponent_id")
-                opponent_ws = active_connections.get(opponent_id)
-                if opponent_ws:
-                    await opponent_ws.send_json({
+                opponent_info = active_connections.get(opponent_id)
+                if opponent_info:
+                    await opponent_info["ws"].send_json({
                         "type": "challenge_received",
                         "challenge_id": data.get("challenge_id"),
                         "from_username": user.username,
@@ -85,25 +99,27 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == "accept_challenge":
                 challenger_id = data.get("from_id")
                 game_id = create_game(challenger_id, user.id)
-                challenger_ws = active_connections.get(challenger_id)
-                if challenger_ws:
-                    await challenger_ws.send_json({
+                challenger_info = active_connections.get(challenger_id)
+                if challenger_info:
+                    await challenger_info["ws"].send_json({
                         "type": "challenge_accepted",
                         "game_id": game_id,
                         "my_color": "white",
-                        "opponent": user.username
+                        "opponent": user.username,
+                        "opponent_id": user.id
                     })
                 await websocket.send_json({
                     "type": "challenge_accepted",
                     "game_id": game_id,
                     "my_color": "black",
-                    "opponent": await get_username_by_id(challenger_id)
+                    "opponent": challenger_info["username"] if challenger_info else "Nepoznat",
+                    "opponent_id": challenger_id
                 })
             elif msg_type == "decline_challenge":
                 challenger_id = data.get("from_id")
-                challenger_ws = active_connections.get(challenger_id)
-                if challenger_ws:
-                    await challenger_ws.send_json({
+                challenger_info = active_connections.get(challenger_id)
+                if challenger_info:
+                    await challenger_info["ws"].send_json({
                         "type": "challenge_declined",
                         "message": f"{user.username} je odbio izazov"
                     })
@@ -119,9 +135,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     games_store[game_id]["moves"].append(move_uci)
                 opponent_id = get_opponent_id(game_id, user.id)
                 if opponent_id:
-                    opponent_ws = active_connections.get(opponent_id)
-                    if opponent_ws:
-                        await opponent_ws.send_json({
+                    opponent_info = active_connections.get(opponent_id)
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({
                             "type": "move",
                             "game_id": game_id,
                             "fen": fen,
@@ -149,30 +165,30 @@ async def websocket_endpoint(websocket: WebSocket):
                 game_id = data.get("game_id")
                 opponent_id = get_opponent_id(game_id, user.id)
                 if opponent_id:
-                    opponent_ws = active_connections.get(opponent_id)
-                    if opponent_ws:
-                        await opponent_ws.send_json({"type": "draw_offer", "game_id": game_id})
+                    opponent_info = active_connections.get(opponent_id)
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({"type": "draw_offer", "game_id": game_id})
             elif msg_type == "draw_accept":
                 game_id = data.get("game_id")
                 opponent_id = get_opponent_id(game_id, user.id)
                 if opponent_id:
-                    opponent_ws = active_connections.get(opponent_id)
-                    if opponent_ws:
-                        await opponent_ws.send_json({"type": "draw_accept", "game_id": game_id})
+                    opponent_info = active_connections.get(opponent_id)
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({"type": "draw_accept", "game_id": game_id})
             elif msg_type == "draw_decline":
                 game_id = data.get("game_id")
                 opponent_id = get_opponent_id(game_id, user.id)
                 if opponent_id:
-                    opponent_ws = active_connections.get(opponent_id)
-                    if opponent_ws:
-                        await opponent_ws.send_json({"type": "draw_decline", "game_id": game_id})
+                    opponent_info = active_connections.get(opponent_id)
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({"type": "draw_decline", "game_id": game_id})
             elif msg_type == "resign":
                 game_id = data.get("game_id")
                 opponent_id = get_opponent_id(game_id, user.id)
                 if opponent_id:
-                    opponent_ws = active_connections.get(opponent_id)
-                    if opponent_ws:
-                        await opponent_ws.send_json({
+                    opponent_info = active_connections.get(opponent_id)
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({
                             "type": "game_over",
                             "result": "resign",
                             "winner": "opponent"
@@ -188,9 +204,9 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == "chat":
                 target_id = data.get("target_id")
                 content = data.get("content")
-                target_ws = active_connections.get(target_id)
-                if target_ws:
-                    await target_ws.send_json({
+                target_info = active_connections.get(target_id)
+                if target_info:
+                    await target_info["ws"].send_json({
                         "type": "chat",
                         "from_username": user.username,
                         "content": content
@@ -200,9 +216,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 content = data.get("content")
                 opponent_id = get_opponent_id(game_id, user.id)
                 if opponent_id:
-                    opponent_ws = active_connections.get(opponent_id)
-                    if opponent_ws:
-                        await opponent_ws.send_json({
+                    opponent_info = active_connections.get(opponent_id)
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({
                             "type": "game_chat",
                             "from_username": user.username,
                             "content": content,
@@ -211,11 +227,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print(f"❌ {user.username} diskonektovan")
+        # Ukloni iz aktivnih veza
         active_connections.pop(user.id, None)
+        # Obavesti ostale o promeni
+        await broadcast_online_users()
+        # Ukloni iz reda čekanja
         await remove_from_queue(user.id)
-
-async def get_username_by_id(user_id: int) -> str:
-    for uid, ws in active_connections.items():
-        if uid == user_id:
-            return f"User_{user_id}"  # U stvarnosti dohvati iz baze
-    return "Nepoznat"
