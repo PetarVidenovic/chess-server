@@ -46,12 +46,10 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     # Autentifikacija
-    async for db in get_db():
-        user = await get_current_user_from_token(token, db)
-        if not user:
-            await websocket.close(code=1008, reason="Invalid token")
-            return
-        break
+    user = await get_current_user_from_token(token)
+    if not user:
+        await websocket.close(code=1008, reason="Invalid token")
+        return
 
     await websocket.accept()
     active_connections[user.id] = websocket
