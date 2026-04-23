@@ -97,8 +97,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         "from_id": user.id
                     })
             elif msg_type == "accept_challenge":
-                challenger_id = data.get("from_id")
+                challenger_id = data.get("from_id")  # ID onog ko je poslao izazov
                 game_id = create_game(challenger_id, user.id)
+    
+                # Poruka za izazivača (beli)
                 challenger_info = active_connections.get(challenger_id)
                 if challenger_info:
                     await challenger_info["ws"].send_json({
@@ -108,6 +110,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         "opponent": user.username,
                         "opponent_id": user.id
                     })
+    
+                # Poruka za onog ko prihvata (crni)
                 await websocket.send_json({
                     "type": "challenge_accepted",
                     "game_id": game_id,
@@ -115,6 +119,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "opponent": challenger_info["username"] if challenger_info else "Nepoznat",
                     "opponent_id": challenger_id
                 })
+                
             elif msg_type == "decline_challenge":
                 challenger_id = data.get("from_id")
                 challenger_info = active_connections.get(challenger_id)
