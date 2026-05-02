@@ -1,0 +1,167 @@
+* {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    margin: 0;
+    background: #1e1e2f;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #eee;
+}
+
+.view {
+    display: none;
+    padding: 16px;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.view.active {
+    display: block;
+}
+
+input, button {
+    padding: 12px;
+    margin: 8px 0;
+    border-radius: 8px;
+    border: none;
+    font-size: 16px;
+    width: 100%;
+}
+
+button {
+    background-color: #4a6fa5;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:active {
+    background-color: #2c4c7c;
+}
+
+.error {
+    color: #ff8888;
+    margin-top: 8px;
+}
+
+#chessboard {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    aspect-ratio: 1 / 1;
+    width: 95vw;
+    max-width: 500px;
+    margin: 20px auto;
+    border: 2px solid #333;
+}
+
+.square {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background-size: cover;
+}
+
+.square.light {
+    background-color: #f0d9b5;
+}
+
+.square.dark {
+    background-color: #b58863;
+}
+
+.square.selected {
+    background-color: #7b9f6e;
+    box-shadow: inset 0 0 0 3px gold;
+}
+
+/* Slike figura popunjavaju polje */
+.square img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none; /* da ne ometaju klikove */
+}
+
+.online-users ul, .challenges ul {
+    list-style: none;
+    padding: 0;
+}
+
+.online-users li, .challenges li {
+    background: #2a2a3a;
+    margin: 6px 0;
+    padding: 10px;
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.challenge-btn, .accept-btn, .decline-btn {
+    background: #3a6b3a;
+    padding: 4px 12px;
+    font-size: 14px;
+    width: auto;
+    margin: 0;
+}
+
+.accept-btn {
+    background: #2a6f2a;
+}
+
+.decline-btn {
+    background: #8b3a3a;
+}
+
+#chat-messages, #game-chat-messages {
+    background: #2a2a3a;
+    height: 150px;
+    overflow-y: auto;
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 14px;
+}
+
+#game-status {
+    text-align: center;
+    font-weight: bold;
+    margin: 10px;
+}
+
+/* Modal za rezultat */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.8);
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background: #2a2a3a;
+    padding: 30px;
+    border-radius: 20px;
+    text-align: center;
+    max-width: 80%;
+    border: 2px solid gold;
+}
+
+.modal-content h2 {
+    margin-top: 0;
+    color: gold;
+}
+
+.modal-content button {
+    margin-top: 20px;
+    width: auto;
+    padding: 10px 30px;
+}

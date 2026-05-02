@@ -1,5 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles      # DODATO
+from fastapi.responses import HTMLResponse       # DODATO
 from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, leaderboard, ws
 from app.database import engine, Base
 from app import models  # uvozi sve modele
@@ -31,3 +33,12 @@ from app.database import init_db
 async def startup_event():
     await init_db()
     print("Tabele su kreirane (ili već postoje)")
+
+# ========== DODATAK ZA VEB KLIJENTA (STATIČKI FAJLOVI) ==========
+# Montiraj folder static/ na putanju /static
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def get_index():
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        return f.read()

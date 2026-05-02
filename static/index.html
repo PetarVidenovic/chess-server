@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Šah Online – mobilni klijent</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chess.js@0.10.3/chess.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Login / Register forma -->
+        <div id="auth-view" class="view active">
+            <h2>Prijava</h2>
+            <input type="email" id="login-email" placeholder="Email">
+            <input type="password" id="login-password" placeholder="Lozinka">
+            <button id="login-btn">Prijavi se</button>
+            <button id="show-register">Registracija</button>
+            <div id="auth-error" class="error"></div>
+        </div>
+
+        <div id="register-view" class="view">
+            <h2>Registracija</h2>
+            <input type="email" id="reg-email" placeholder="Email">
+            <input type="text" id="reg-username" placeholder="Korisničko ime">
+            <input type="password" id="reg-password" placeholder="Lozinka">
+            <button id="register-btn">Registruj se</button>
+            <button id="show-login">Nazad na prijavu</button>
+            <div id="reg-error" class="error"></div>
+        </div>
+
+        <!-- Lobby -->
+        <div id="lobby-view" class="view">
+            <div class="header">
+                <h2>Lobi</h2>
+                <button id="logout-btn">Odjava</button>
+            </div>
+            <div class="online-users">
+                <h3>Online korisnici</h3>
+                <ul id="users-list"></ul>
+            </div>
+            <div class="challenges">
+                <h3>Izazovi</h3>
+                <ul id="challenges-list"></ul>
+            </div>
+            <div class="chat">
+                <h3>Chat</h3>
+                <div id="chat-messages"></div>
+                <input type="text" id="chat-input" placeholder="Poruka...">
+                <button id="send-chat">Pošalji</button>
+            </div>
+            <div id="lobby-error" class="error"></div>
+        </div>
+
+        <!-- Šahovska tabla (igra) -->
+        <div id="game-view" class="view">
+            <div class="game-header">
+                <span id="game-opponent"></span>
+                <button id="exit-game-btn">Napusti igru</button>
+            </div>
+            <div id="chessboard"></div>
+            <div id="game-status"></div>
+            <div id="game-chat-messages"></div>
+            <input type="text" id="game-chat-input" placeholder="Chat u igri...">
+            <button id="send-game-chat">Pošalji</button>
+        </div>
+
+        <!-- Modal za prikaz rezultata -->
+        <div id="result-modal" class="modal">
+            <div class="modal-content">
+                <h2 id="result-title"></h2>
+                <p id="result-message"></p>
+                <button id="result-ok">OK</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
