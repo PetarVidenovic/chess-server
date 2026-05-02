@@ -13,6 +13,9 @@ router = APIRouter()
 # Aktivne WebSocket veze: {user_id: {"ws": websocket, "username": username}}
 active_connections = {}
 
+# Čuvanje aktivnih izazova: {challenge_id: {"from_id": from_id, "to_id": to_id}}
+active_challenges = {}
+
 async def broadcast_online_users():
     """Šalje listu online korisnika svim povezanim klijentima."""
     users_list = [{"id": uid, "username": info["username"]} for uid, info in active_connections.items()]
@@ -90,44 +93,83 @@ async def websocket_endpoint(websocket: WebSocket):
                 opponent_id = data.get("opponent_id")
                 opponent_info = active_connections.get(opponent_id)
                 if opponent_info:
+                    challenge_id = str(uuid.uuid4())
+                    # Sačuvaj izazov
+                    active_challenges[challenge_id] = {
+                        "from_id": user.id,
+                        "to_id": opponent_id
+                    }
                     await opponent_info["ws"].send_json({
                         "type": "challenge_received",
-                        "challenge_id": data.get("challenge_id"),
+                        "challenge_id": challenge_id,
                         "from_username": user.username,
                         "from_id": user.id
                     })
             elif msg_type == "accept_challenge":
-                challenger_id = data.get("from_id")  # ID onog ko je poslao izazov
-                game_id = create_game(challenger_id, user.id)
-    
-                # Poruka za izazivača (beli)
-                challenger_info = active_connections.get(challenger_id)
-                if challenger_info:
-                    await challenger_info["ws"].send_json({
+                challenge_id = data.get("challenge_id")
+                if not challenge_id:
+                    # Pokušaj da se pronađe izazov preko from_id (za backward compatibility)
+                    from_id = data.get("from_id")
+                    if from_id:
+                        # Pronađi izazov gde je from_id = from_id i to_id = user.id
+                        found = None
+                        for cid, chal in active_challenges.items():
+                            if chal["from_id"] == from_id and chal["to_id"] == user.id:
+                                found = cid
+                                break
+                        if found:
+                            challenge_id = found
+                if challenge_id and challenge_id in active_challenges:
+                    challenge = active_challenges[challenge_id]
+                    challenger_id = challenge["from_id"]
+                    # Kreiraj igru (izazivač je beli)
+                    game_id = create_game(challenger_id, user.id)
+                    # Poruka za izazivača (beli)
+                    challenger_info = active_connections.get(challenger_id)
+                    if challenger_info:
+                        await challenger_info["ws"].send_json({
+                            "type": "challenge_accepted",
+                            "game_id": game_id,
+                            "my_color": "white",
+                            "opponent": user.username,
+                            "opponent_id": user.id
+                        })
+                    # Poruka za onog ko prihvata (crni)
+                    await websocket.send_json({
                         "type": "challenge_accepted",
                         "game_id": game_id,
-                        "my_color": "white",
-                        "opponent": user.username,
-                        "opponent_id": user.id
+                        "my_color": "black",
+                        "opponent": challenger_info["username"] if challenger_info else "Nepoznat",
+                        "opponent_id": challenger_id
                     })
-    
-                # Poruka za onog ko prihvata (crni)
-                await websocket.send_json({
-                    "type": "challenge_accepted",
-                    "game_id": game_id,
-                    "my_color": "black",
-                    "opponent": challenger_info["username"] if challenger_info else "Nepoznat",
-                    "opponent_id": challenger_id
-                })
-                
+                    # Obriši izazov
+                    del active_challenges[challenge_id]
+                else:
+                    # Izazov ne postoji (možda je već istekao)
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Izazov ne postoji ili je istekao"
+                    })
             elif msg_type == "decline_challenge":
-                challenger_id = data.get("from_id")
-                challenger_info = active_connections.get(challenger_id)
-                if challenger_info:
-                    await challenger_info["ws"].send_json({
-                        "type": "challenge_declined",
-                        "message": f"{user.username} je odbio izazov"
-                    })
+                challenge_id = data.get("challenge_id")
+                if not challenge_id:
+                    from_id = data.get("from_id")
+                    if from_id:
+                        # Pronađi izazov
+                        for cid, chal in active_challenges.items():
+                            if chal["from_id"] == from_id and chal["to_id"] == user.id:
+                                challenge_id = cid
+                                break
+                if challenge_id and challenge_id in active_challenges:
+                    challenge = active_challenges[challenge_id]
+                    challenger_id = challenge["from_id"]
+                    challenger_info = active_connections.get(challenger_id)
+                    if challenger_info:
+                        await challenger_info["ws"].send_json({
+                            "type": "challenge_declined",
+                            "message": f"{user.username} je odbio izazov"
+                        })
+                    del active_challenges[challenge_id]
 
             # ========== POTEZI ==========
             elif msg_type == "move":
@@ -234,6 +276,10 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"❌ {user.username} diskonektovan")
         # Ukloni iz aktivnih veza
         active_connections.pop(user.id, None)
+        # Ukloni sve izazove koje je ovaj korisnik poslao ili primio
+        to_delete = [cid for cid, chal in active_challenges.items() if chal["from_id"] == user.id or chal["to_id"] == user.id]
+        for cid in to_delete:
+            del active_challenges[cid]
         # Obavesti ostale o promeni
         await broadcast_online_users()
         # Ukloni iz reda čekanja
