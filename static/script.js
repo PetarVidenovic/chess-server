@@ -44,7 +44,6 @@ function connectWebSocket() {
     if (ws) ws.close();
     const wsUrl = `wss://${window.location.host}/ws?token=${token}`;
     ws = new WebSocket(wsUrl);
-
     ws.onopen = () => console.log("WebSocket connected");
     ws.onmessage = (event) => handleWebSocketMessage(JSON.parse(event.data));
     ws.onerror = (err) => console.error("WebSocket error", err);
@@ -57,7 +56,6 @@ function connectWebSocket() {
 function handleWebSocketMessage(data) {
     console.log("WS:", data);
     const type = data.type;
-
     if (type === "online_users") {
         onlineUsers = data.users.filter(u => u.id !== currentUser?.id);
         renderOnlineUsers();
@@ -76,24 +74,18 @@ function handleWebSocketMessage(data) {
         startGame(data.opponent);
     }
     else if (type === "move" || type === "game_state") {
-        if (data.game_id === currentGameId) {
-            if (data.fen) {
-                game.load(data.fen);
-                drawBoard();
-                updateGameStatus();
-            }
+        if (data.game_id === currentGameId && data.fen) {
+            game.load(data.fen);
+            drawBoard();
+            updateGameStatus();
         }
-    }
-    else if (type === "chat" && data.game_id === currentGameId) {
-        appendGameChatMessage(data.from_username, data.content);
     }
     else if (type === "game_chat") {
         appendGameChatMessage(data.from_username, data.content);
     }
     else if (type === "game_over" || data.result) {
         if (data.game_id === currentGameId) {
-            let resultTitle = "";
-            let resultMsg = "";
+            let resultTitle = "", resultMsg = "";
             const winner = data.winner; // "white", "black" ili null za remi
             if (winner === myColor) {
                 resultTitle = "🏆 POBEDA!";
@@ -118,12 +110,11 @@ function renderOnlineUsers() {
     container.innerHTML = '';
     onlineUsers.forEach(user => {
         const li = document.createElement('li');
-        li.innerHTML = `${user.username} 
-            <button class="challenge-btn" data-id="${user.id}">Izazovi</button>`;
+        li.innerHTML = `${user.username} <button class="challenge-btn" data-id="${user.id}">Izazovi</button>`;
         container.appendChild(li);
     });
     container.querySelectorAll('.challenge-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', () => {
             const userId = btn.getAttribute('data-id');
             ws.send(JSON.stringify({ type: "challenge", opponent_id: userId }));
         });
@@ -163,7 +154,7 @@ function renderChallenges() {
     });
 }
 
-// ==================== ŠAHOVSKA TABLA (sa slikama) ====================
+// ==================== ŠAHOVSKA TABLA (UNICODE) ====================
 function startGame(opponentName) {
     game = new Chess();
     showView('game-view');
@@ -172,16 +163,16 @@ function startGame(opponentName) {
     updateGameStatus();
 }
 
-function getPieceCode(type, color) {
-    const map = {
-        'k': color === 'w' ? 'wk' : 'bk',
-        'q': color === 'w' ? 'wq' : 'bq',
-        'r': color === 'w' ? 'wr' : 'br',
-        'b': color === 'w' ? 'wb' : 'bb',
-        'n': color === 'w' ? 'wn' : 'bn',
-        'p': color === 'w' ? 'wp' : 'bp'
+function getPieceSymbol(type, color) {
+    const symbols = {
+        'k': color === 'w' ? '♔' : '♚',
+        'q': color === 'w' ? '♕' : '♛',
+        'r': color === 'w' ? '♖' : '♜',
+        'b': color === 'w' ? '♗' : '♝',
+        'n': color === 'w' ? '♘' : '♞',
+        'p': color === 'w' ? '♙' : '♟'
     };
-    return map[type];
+    return symbols[type];
 }
 
 function drawBoard() {
@@ -195,14 +186,9 @@ function drawBoard() {
             square.classList.add((i + j) % 2 === 0 ? 'light' : 'dark');
             const piece = board[i][j];
             if (piece) {
-                const img = document.createElement('img');
-                const pieceCode = getPieceCode(piece.type, piece.color);
-                img.src = `/static/pieces/${pieceCode}.png`;
-                img.alt = pieceCode;
-                img.style.width = '100%';
-                img.style.height = '100%';
-                img.style.objectFit = 'contain';
-                square.appendChild(img);
+                square.textContent = getPieceSymbol(piece.type, piece.color);
+            } else {
+                square.textContent = '';
             }
             square.dataset.row = i;
             square.dataset.col = j;
@@ -257,14 +243,12 @@ document.getElementById('chessboard').addEventListener('click', (e) => {
     const square = file + rank;
 
     if (selectedSquare === null) {
-        // prvi klik
         const piece = game.get(square);
         if (piece && ((myColor === 'white' && piece.color === 'w') || (myColor === 'black' && piece.color === 'b'))) {
             selectedSquare = square;
             highlightSelectedSquare(row, col);
         }
     } else {
-        // drugi klik
         const move = game.move({
             from: selectedSquare,
             to: square,
