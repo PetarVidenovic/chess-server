@@ -3,7 +3,7 @@ let token = null;
 let currentUser = null;
 let ws = null;
 let currentGameId = null;
-let myColor = null;
+let myColor = null; // "white" ili "black"
 let game = null;
 
 let onlineUsers = [];
@@ -70,7 +70,11 @@ function handleWebSocketMessage(data) {
     }
     else if (type === "challenge_accepted" || type === "match_found") {
         currentGameId = data.game_id;
-        myColor = data.color;
+        // ISPRAVKA: koristi my_color (ili color kao fallback)
+        myColor = data.my_color || data.color;
+        console.log("Postavljen myColor:", myColor);
+        // Osveži debug info
+        updateDebugInfo();
         startGame(data.opponent);
     }
     else if (type === "move" || type === "game_state") {
@@ -78,6 +82,7 @@ function handleWebSocketMessage(data) {
             game = new Chess(data.fen);
             drawBoard();
             updateGameStatus();
+            updateDebugInfo();
         }
     }
     else if (type === "game_chat") {
@@ -101,6 +106,14 @@ function handleWebSocketMessage(data) {
             showResultModal(resultTitle, resultMsg);
             currentGameId = null;
         }
+    }
+}
+
+function updateDebugInfo() {
+    const debugDiv = document.getElementById('debug-info');
+    if (debugDiv && game) {
+        const turnText = game.turn() === 'w' ? 'Beli' : 'Crni';
+        debugDiv.innerHTML = `myColor: ${myColor} | game.turn: ${turnText} (${game.turn()}) | na potezu: ${turnText}`;
     }
 }
 
@@ -167,6 +180,7 @@ function startGame(opponentName) {
     setTimeout(() => {
         drawBoard();
         updateGameStatus();
+        updateDebugInfo();
     }, 50);
 }
 
@@ -234,10 +248,14 @@ function handleSquareTap(e) {
     if (!currentGameId) return;
     if (game.game_over()) return;
 
-    const turn = game.turn();
-    const myTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+    const turn = game.turn(); // 'w' ili 'b'
+    let myTurn = false;
+    if (myColor === 'white' && turn === 'w') myTurn = true;
+    if (myColor === 'black' && turn === 'b') myTurn = true;
+
+    // Ako nije tvoj potez, prikaži detaljnu poruku (umesto samo "Niste na potezu")
     if (!myTurn) {
-        alert("Niste na potezu!");
+        alert(`Niste na potezu! (myColor=${myColor}, game.turn=${turn})`);
         return;
     }
 
@@ -248,12 +266,16 @@ function handleSquareTap(e) {
     const square = file + rank;
 
     if (selectedSquare === null) {
+        // Prvi klik: proveri da li je na toj figuri igrač
         const piece = game.get(square);
         if (piece && ((myColor === 'white' && piece.color === 'w') || (myColor === 'black' && piece.color === 'b'))) {
             selectedSquare = square;
             highlightSelectedSquare(row, col);
+        } else {
+            alert("To nije vaša figura!");
         }
     } else {
+        // Drugi klik: pokušaj poteza
         const move = game.move({
             from: selectedSquare,
             to: square,
@@ -269,6 +291,7 @@ function handleSquareTap(e) {
             }));
             drawBoard();
             updateGameStatus();
+            updateDebugInfo();
         } else {
             alert("Nelegalan potez");
         }
