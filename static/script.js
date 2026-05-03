@@ -9,6 +9,10 @@ let game = null;
 let onlineUsers = [];
 let pendingChallenges = [];
 
+// Dodatno: pamti ko je poslao izazov (za lokalno određivanje boje)
+let lastSentChallengeTo = null;
+let lastReceivedChallengeFrom = null;
+
 // ==================== POMOĆNE FUNKCIJE ====================
 function showView(viewId) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -61,6 +65,8 @@ function handleWebSocketMessage(data) {
         renderOnlineUsers();
     }
     else if (type === "challenge_received") {
+        // Zapamti ko je poslao izazov
+        lastReceivedChallengeFrom = data.from_id;
         pendingChallenges.push({
             challenge_id: data.challenge_id,
             from_username: data.from_username,
@@ -70,10 +76,26 @@ function handleWebSocketMessage(data) {
     }
     else if (type === "challenge_accepted" || type === "match_found") {
         currentGameId = data.game_id;
-        // ISPRAVKA: koristi my_color (ili color kao fallback)
-        myColor = data.my_color || data.color;
+        // Lokalno određivanje boje:
+        // Ako smo MI poslali izazov (lastSentChallengeTo === opponent_id), onda smo beli.
+        // Ako smo MI prihvatili izazov (lastReceivedChallengeFrom je postavljen), onda smo crni.
+        const opponentId = data.opponent_id;
+        if (lastSentChallengeTo === opponentId) {
+            myColor = 'white';
+            console.log("Lokalno određeno: beli (jer smo poslali izazov)");
+        } else if (lastReceivedChallengeFrom === opponentId) {
+            myColor = 'black';
+            console.log("Lokalno određeno: crni (jer smo prihvatili izazov)");
+        } else {
+            // Fallback na podatke sa servera
+            myColor = data.my_color || data.color;
+            console.log("Fallback boja sa servera:", myColor);
+        }
+        // Resetuj privremene podatke
+        lastSentChallengeTo = null;
+        lastReceivedChallengeFrom = null;
+        
         console.log("Postavljen myColor:", myColor);
-        // Osveži debug info
         updateDebugInfo();
         startGame(data.opponent);
     }
@@ -132,9 +154,11 @@ function renderOnlineUsers() {
                 alert("WebSocket nije povezan. Pokušajte ponovo.");
                 return;
             }
-            const userId = parseInt(btn.getAttribute('data-id'));
-            console.log("Šaljem izazov ID:", userId);
-            ws.send(JSON.stringify({ type: "challenge", opponent_id: userId }));
+            const opponentId = parseInt(btn.getAttribute('data-id'));
+            // Zapamti kome smo poslali izazov
+            lastSentChallengeTo = opponentId;
+            console.log("Šaljem izazov ID:", opponentId);
+            ws.send(JSON.stringify({ type: "challenge", opponent_id: opponentId }));
         });
     });
 }
@@ -152,11 +176,16 @@ function renderChallenges() {
     container.querySelectorAll('.accept-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const challengeId = btn.getAttribute('data-id');
-            const fromId = btn.getAttribute('data-from');
+            const fromId = parseInt(btn.getAttribute('data-from'));
+            // Kada prihvatamo izazov, pametno: lastReceivedChallengeFrom je već postavljen pri prijemu challenge_received
+            // Ako nije, postavljamo ga sada
+            if (!lastReceivedChallengeFrom) {
+                lastReceivedChallengeFrom = fromId;
+            }
             ws.send(JSON.stringify({
                 type: "accept_challenge",
                 challenge_id: challengeId,
-                from_id: parseInt(fromId)
+                from_id: fromId
             }));
             pendingChallenges = pendingChallenges.filter(c => c.challenge_id != challengeId);
             renderChallenges();
@@ -253,9 +282,8 @@ function handleSquareTap(e) {
     if (myColor === 'white' && turn === 'w') myTurn = true;
     if (myColor === 'black' && turn === 'b') myTurn = true;
 
-    // Ako nije tvoj potez, prikaži detaljnu poruku (umesto samo "Niste na potezu")
     if (!myTurn) {
-        alert(`Niste na potezu! (myColor=${myColor}, game.turn=${turn})`);
+        alert(`Niste na potezu! (myColor=${myColor}, turn=${turn})`);
         return;
     }
 
@@ -266,7 +294,6 @@ function handleSquareTap(e) {
     const square = file + rank;
 
     if (selectedSquare === null) {
-        // Prvi klik: proveri da li je na toj figuri igrač
         const piece = game.get(square);
         if (piece && ((myColor === 'white' && piece.color === 'w') || (myColor === 'black' && piece.color === 'b'))) {
             selectedSquare = square;
@@ -275,7 +302,6 @@ function handleSquareTap(e) {
             alert("To nije vaša figura!");
         }
     } else {
-        // Drugi klik: pokušaj poteza
         const move = game.move({
             from: selectedSquare,
             to: square,
