@@ -3,11 +3,11 @@ let token = null;
 let currentUser = null;
 let ws = null;
 let currentGameId = null;
-let myColor = null; // "white" ili "black"
-let game = null;    // chess.js instanca
+let myColor = null;
+let game = null;
 
 let onlineUsers = [];
-let pendingChallenges = []; // { challenge_id, from_username, from_id }
+let pendingChallenges = [];
 
 // ==================== POMOĆNE FUNKCIJE ====================
 function showView(viewId) {
@@ -70,12 +70,12 @@ function handleWebSocketMessage(data) {
     }
     else if (type === "challenge_accepted" || type === "match_found") {
         currentGameId = data.game_id;
-        myColor = data.color; // "white" ili "black"
+        myColor = data.color;
         startGame(data.opponent);
     }
     else if (type === "move" || type === "game_state") {
         if (data.game_id === currentGameId && data.fen) {
-            game.load(data.fen);
+            game = new Chess(data.fen);
             drawBoard();
             updateGameStatus();
         }
@@ -86,7 +86,7 @@ function handleWebSocketMessage(data) {
     else if (type === "game_over" || data.result) {
         if (data.game_id === currentGameId) {
             let resultTitle = "", resultMsg = "";
-            const winner = data.winner; // "white", "black" ili null za remi
+            const winner = data.winner;
             if (winner === myColor) {
                 resultTitle = "🏆 POBEDA!";
                 resultMsg = "Čestitamo, pobedili ste!";
@@ -115,7 +115,12 @@ function renderOnlineUsers() {
     });
     container.querySelectorAll('.challenge-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            const userId = btn.getAttribute('data-id');
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert("WebSocket nije povezan. Pokušajte ponovo.");
+                return;
+            }
+            const userId = parseInt(btn.getAttribute('data-id'));
+            console.log("Šaljem izazov ID:", userId);
             ws.send(JSON.stringify({ type: "challenge", opponent_id: userId }));
         });
     });
@@ -138,7 +143,7 @@ function renderChallenges() {
             ws.send(JSON.stringify({
                 type: "accept_challenge",
                 challenge_id: challengeId,
-                from_id: fromId
+                from_id: parseInt(fromId)
             }));
             pendingChallenges = pendingChallenges.filter(c => c.challenge_id != challengeId);
             renderChallenges();
@@ -154,13 +159,15 @@ function renderChallenges() {
     });
 }
 
-// ==================== ŠAHOVSKA TABLA (UNICODE) ====================
+// ==================== ŠAHOVSKA TABLA ====================
 function startGame(opponentName) {
     game = new Chess();
     showView('game-view');
     document.getElementById('game-opponent').innerText = `Protivnik: ${opponentName}`;
-    drawBoard();
-    updateGameStatus();
+    setTimeout(() => {
+        drawBoard();
+        updateGameStatus();
+    }, 50);
 }
 
 function getPieceSymbol(type, color) {
@@ -177,6 +184,7 @@ function getPieceSymbol(type, color) {
 
 function drawBoard() {
     const boardDiv = document.getElementById('chessboard');
+    if (!boardDiv) return;
     boardDiv.innerHTML = '';
     const board = game.board();
     for (let i = 0; i < 8; i++) {
@@ -185,11 +193,7 @@ function drawBoard() {
             square.classList.add('square');
             square.classList.add((i + j) % 2 === 0 ? 'light' : 'dark');
             const piece = board[i][j];
-            if (piece) {
-                square.textContent = getPieceSymbol(piece.type, piece.color);
-            } else {
-                square.textContent = '';
-            }
+            square.textContent = piece ? getPieceSymbol(piece.type, piece.color) : '';
             square.dataset.row = i;
             square.dataset.col = j;
             boardDiv.appendChild(square);
@@ -199,6 +203,7 @@ function drawBoard() {
 
 function updateGameStatus() {
     const statusDiv = document.getElementById('game-status');
+    if (!statusDiv) return;
     if (game.game_over()) {
         if (game.in_checkmate()) {
             const winner = game.turn() === 'w' ? 'Crni' : 'Beli';
@@ -223,7 +228,7 @@ function clearHighlight() {
     document.querySelectorAll('.square').forEach(sq => sq.classList.remove('selected'));
 }
 
-document.getElementById('chessboard').addEventListener('click', (e) => {
+function handleSquareTap(e) {
     const squareDiv = e.target.closest('.square');
     if (!squareDiv) return;
     if (!currentGameId) return;
@@ -270,17 +275,29 @@ document.getElementById('chessboard').addEventListener('click', (e) => {
         selectedSquare = null;
         clearHighlight();
     }
-});
+}
+
+const boardDivElement = document.getElementById('chessboard');
+if (boardDivElement) {
+    boardDivElement.addEventListener('click', handleSquareTap);
+    boardDivElement.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const fakeEvent = { target: document.elementFromPoint(touch.clientX, touch.clientY) };
+        handleSquareTap(fakeEvent);
+    });
+}
 
 function appendGameChatMessage(sender, msg) {
     const chatDiv = document.getElementById('game-chat-messages');
+    if (!chatDiv) return;
     const p = document.createElement('div');
     p.textContent = `${sender}: ${msg}`;
     chatDiv.appendChild(p);
     chatDiv.scrollTop = chatDiv.scrollHeight;
 }
 
-// ==================== AUTH I INICIJALIZACIJA ====================
+// ==================== AUTH ====================
 async function login(email, password) {
     try {
         const data = await apiRequest('POST', '/auth/login', { email, password });
@@ -305,19 +322,13 @@ async function register(email, username, password) {
     }
 }
 
-// Event listeneri
 document.getElementById('login-btn').addEventListener('click', () => {
-    const email = document.getElementById('login-email').value;
-    const pass = document.getElementById('login-password').value;
-    login(email, pass);
+    login(document.getElementById('login-email').value, document.getElementById('login-password').value);
 });
 document.getElementById('show-register').addEventListener('click', () => showView('register-view'));
 document.getElementById('show-login').addEventListener('click', () => showView('auth-view'));
 document.getElementById('register-btn').addEventListener('click', () => {
-    const email = document.getElementById('reg-email').value;
-    const user = document.getElementById('reg-username').value;
-    const pass = document.getElementById('reg-password').value;
-    register(email, user, pass);
+    register(document.getElementById('reg-email').value, document.getElementById('reg-username').value, document.getElementById('reg-password').value);
 });
 document.getElementById('logout-btn').addEventListener('click', () => {
     token = null;
@@ -330,7 +341,6 @@ document.getElementById('exit-game-btn').addEventListener('click', () => {
     showView('lobby-view');
 });
 
-// Chat u lobiju
 document.getElementById('send-chat').addEventListener('click', () => {
     const input = document.getElementById('chat-input');
     if (input.value.trim() && ws) {
