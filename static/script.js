@@ -9,9 +9,14 @@ let game = null;
 let onlineUsers = [];
 let pendingChallenges = [];
 
-// Dodatno: pamti ko je poslao izazov (za lokalno određivanje boje)
 let lastSentChallengeTo = null;
 let lastReceivedChallengeFrom = null;
+
+// SAT (90 minuta = 5400 sekundi)
+let whiteTime = 5400;   // sekunde
+let blackTime = 5400;
+let clockInterval = null;
+let currentTurnTimeStart = null;
 
 // ==================== POMOĆNE FUNKCIJE ====================
 function showView(viewId) {
@@ -27,6 +32,7 @@ function showResultModal(title, message) {
     document.getElementById('result-ok').onclick = () => {
         modal.style.display = 'none';
         currentGameId = null;
+        if (clockInterval) clearInterval(clockInterval);
         showView('lobby-view');
     };
 }
@@ -65,7 +71,6 @@ function handleWebSocketMessage(data) {
         renderOnlineUsers();
     }
     else if (type === "challenge_received") {
-        // Zapamti ko je poslao izazov
         lastReceivedChallengeFrom = data.from_id;
         pendingChallenges.push({
             challenge_id: data.challenge_id,
@@ -76,35 +81,31 @@ function handleWebSocketMessage(data) {
     }
     else if (type === "challenge_accepted" || type === "match_found") {
         currentGameId = data.game_id;
-        // Lokalno određivanje boje:
-        // Ako smo MI poslali izazov (lastSentChallengeTo === opponent_id), onda smo beli.
-        // Ako smo MI prihvatili izazov (lastReceivedChallengeFrom je postavljen), onda smo crni.
+        // Odredi boju lokalno ili sa servera
         const opponentId = data.opponent_id;
-        if (lastSentChallengeTo === opponentId) {
-            myColor = 'white';
-            console.log("Lokalno određeno: beli (jer smo poslali izazov)");
-        } else if (lastReceivedChallengeFrom === opponentId) {
-            myColor = 'black';
-            console.log("Lokalno određeno: crni (jer smo prihvatili izazov)");
-        } else {
-            // Fallback na podatke sa servera
-            myColor = data.my_color || data.color;
-            console.log("Fallback boja sa servera:", myColor);
-        }
-        // Resetuj privremene podatke
+        if (lastSentChallengeTo === opponentId) myColor = 'white';
+        else if (lastReceivedChallengeFrom === opponentId) myColor = 'black';
+        else myColor = data.my_color || data.color;
         lastSentChallengeTo = null;
         lastReceivedChallengeFrom = null;
-        
-        console.log("Postavljen myColor:", myColor);
-        updateDebugInfo();
         startGame(data.opponent);
     }
     else if (type === "move" || type === "game_state") {
         if (data.game_id === currentGameId && data.fen) {
+            // Zaustavi trenutni sat
+            if (clockInterval) clearInterval(clockInterval);
+            // Ažuriraj tablu
             game = new Chess(data.fen);
             drawBoard();
             updateGameStatus();
-            updateDebugInfo();
+            // Promeni sat: switch turn
+            const turn = game.turn();
+            if (turn === 'w') {
+                if (clockInterval) startClock('white');
+            } else {
+                if (clockInterval) startClock('black');
+            }
+            updateClockDisplay();
         }
     }
     else if (type === "game_chat") {
@@ -126,20 +127,49 @@ function handleWebSocketMessage(data) {
             }
             if (data.result_text) resultMsg = data.result_text;
             showResultModal(resultTitle, resultMsg);
+            if (clockInterval) clearInterval(clockInterval);
             currentGameId = null;
         }
     }
 }
 
-function updateDebugInfo() {
-    const debugDiv = document.getElementById('debug-info');
-    if (debugDiv && game) {
-        const turnText = game.turn() === 'w' ? 'Beli' : 'Crni';
-        debugDiv.innerHTML = `myColor: ${myColor} | game.turn: ${turnText} (${game.turn()}) | na potezu: ${turnText}`;
-    }
+// Sat
+function startClock(color) {
+    if (clockInterval) clearInterval(clockInterval);
+    const startTime = Date.now();
+    clockInterval = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        if (color === 'white') {
+            whiteTime = Math.max(0, whiteTime - elapsed);
+            if (whiteTime <= 0) { whiteTime = 0; clearInterval(clockInterval); gameOverByTime('white'); }
+        } else {
+            blackTime = Math.max(0, blackTime - elapsed);
+            if (blackTime <= 0) { blackTime = 0; clearInterval(clockInterval); gameOverByTime('black'); }
+        }
+        updateClockDisplay();
+    }, 100);
+}
+function updateClockDisplay() {
+    const format = (sec) => {
+        const mins = Math.floor(sec / 60);
+        const remainSec = sec % 60;
+        return `${mins}:${remainSec < 10 ? '0'+remainSec : remainSec}`;
+    };
+    document.getElementById('white-time').innerText = format(whiteTime);
+    document.getElementById('black-time').innerText = format(blackTime);
+}
+function gameOverByTime(color) {
+    // color je koji je ostao bez vremena
+    if (!currentGameId) return;
+    const winner = (color === 'white') ? 'black' : 'white';
+    const result = (winner === myColor) ? "Pobeda (vreme)!" : "Poraz (vreme)";
+    showResultModal(result, "Protivnik je ostao bez vremena.");
+    // Pošalji resign poruku serveru?
+    ws.send(JSON.stringify({ type: "resign", game_id: currentGameId }));
+    currentGameId = null;
 }
 
-// ==================== LOBBY UI ====================
+// ==================== LOBBY ====================
 function renderOnlineUsers() {
     const container = document.getElementById('users-list');
     container.innerHTML = '';
@@ -151,13 +181,11 @@ function renderOnlineUsers() {
     container.querySelectorAll('.challenge-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
-                alert("WebSocket nije povezan. Pokušajte ponovo.");
+                alert("WebSocket nije povezan.");
                 return;
             }
             const opponentId = parseInt(btn.getAttribute('data-id'));
-            // Zapamti kome smo poslali izazov
             lastSentChallengeTo = opponentId;
-            console.log("Šaljem izazov ID:", opponentId);
             ws.send(JSON.stringify({ type: "challenge", opponent_id: opponentId }));
         });
     });
@@ -177,11 +205,7 @@ function renderChallenges() {
         btn.addEventListener('click', () => {
             const challengeId = btn.getAttribute('data-id');
             const fromId = parseInt(btn.getAttribute('data-from'));
-            // Kada prihvatamo izazov, pametno: lastReceivedChallengeFrom je već postavljen pri prijemu challenge_received
-            // Ako nije, postavljamo ga sada
-            if (!lastReceivedChallengeFrom) {
-                lastReceivedChallengeFrom = fromId;
-            }
+            if (!lastReceivedChallengeFrom) lastReceivedChallengeFrom = fromId;
             ws.send(JSON.stringify({
                 type: "accept_challenge",
                 challenge_id: challengeId,
@@ -201,28 +225,108 @@ function renderChallenges() {
     });
 }
 
-// ==================== ŠAHOVSKA TABLA ====================
+// ==================== TURNIRI ====================
+async function loadTournaments() {
+    try {
+        const tournaments = await apiRequest('GET', '/tournaments/');
+        const container = document.getElementById('tournament-list');
+        container.innerHTML = '';
+        for (let t of tournaments) {
+            const card = document.createElement('div');
+            card.className = 'tournament-card';
+            card.innerHTML = `
+                <h3>${t.name}</h3>
+                <p>Status: ${t.status}</p>
+                <p>Broj igrača: ${t.players_count}</p>
+                <button class="join-tournament" data-id="${t.id}">Prijavi se</button>
+                <button class="view-tournament" data-id="${t.id}" style="margin-left:8px;">Detalji</button>
+            `;
+            container.appendChild(card);
+        }
+        document.querySelectorAll('.join-tournament').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const tourId = btn.getAttribute('data-id');
+                await apiRequest('POST', `/tournaments/${tourId}/join`, {});
+                alert('Prijavljeni ste na turnir');
+                loadTournaments();
+            });
+        });
+        document.querySelectorAll('.view-tournament').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const tourId = btn.getAttribute('data-id');
+                await showTournamentDetails(tourId);
+            });
+        });
+    } catch (err) { console.error(err); }
+}
+
+async function showTournamentDetails(tourId) {
+    try {
+        const data = await apiRequest('GET', `/tournaments/${tourId}/details`);
+        document.getElementById('tournament-name').innerText = data.name;
+        let matchesHtml = '<h4>Mečevi</h4><ul>';
+        for (let m of data.matches) {
+            matchesHtml += `<li>${m.player1} vs ${m.player2} - Rezultat: ${m.result || 'nije odigran'}</li>`;
+        }
+        matchesHtml += '</ul>';
+        document.getElementById('tournament-matches').innerHTML = matchesHtml;
+        let standingsHtml = '<h4>Tabela</h4><table class="standings-table"><tr><th>Igrač</th><th>Pobede</th><th>Porazi</th><th>Remiji</th><th>Bodovi</th></tr>';
+        for (let p of data.standings) {
+            standingsHtml += `<tr><td>${p.username}</td><td>${p.wins}</td><td>${p.losses}</td><td>${p.draws}</td><td>${p.points}</td></tr>`;
+        }
+        standingsHtml += '</table>';
+        document.getElementById('tournament-standings').innerHTML = standingsHtml;
+        document.getElementById('tournament-detail').style.display = 'block';
+    } catch (err) { alert('Ne mogu učitati detalje turnira'); }
+}
+
+// ==================== PROFIL ====================
+async function loadProfile() {
+    try {
+        const user = await apiRequest('GET', '/users/me');
+        document.getElementById('profile-username').innerText = user.username;
+        document.getElementById('profile-rating').innerText = user.rating || 1200;
+        document.getElementById('profile-wins').innerText = user.wins || 0;
+        document.getElementById('profile-losses').innerText = user.losses || 0;
+        document.getElementById('profile-draws').innerText = user.draws || 0;
+        const total = (user.wins || 0) + (user.losses || 0) + (user.draws || 0);
+        document.getElementById('profile-total').innerText = total;
+        if (user.profile_picture) {
+            document.getElementById('profile-pic').src = user.profile_picture;
+        }
+    } catch (err) { console.error(err); }
+}
+
+// ==================== ŠAHOVSKA TABLA (SVG figure) ====================
 function startGame(opponentName) {
     game = new Chess();
+    whiteTime = 5400;
+    blackTime = 5400;
+    updateClockDisplay();
+    if (clockInterval) clearInterval(clockInterval);
+    // Ko prvi igra? Ako je myColor = white, startuj beli sat
+    if (myColor === 'white') startClock('white');
+    else startClock('black');
     showView('game-view');
     document.getElementById('game-opponent').innerText = `Protivnik: ${opponentName}`;
     setTimeout(() => {
         drawBoard();
         updateGameStatus();
-        updateDebugInfo();
     }, 50);
 }
 
-function getPieceSymbol(type, color) {
-    const symbols = {
-        'k': color === 'w' ? '♔' : '♚',
-        'q': color === 'w' ? '♕' : '♛',
-        'r': color === 'w' ? '♖' : '♜',
-        'b': color === 'w' ? '♗' : '♝',
-        'n': color === 'w' ? '♘' : '♞',
-        'p': color === 'w' ? '♙' : '♟'
+function getPieceCodeSVG(type, color) {
+    const map = {
+        'k': color === 'w' ? 'wK' : 'bK',
+        'q': color === 'w' ? 'wQ' : 'bQ',
+        'r': color === 'w' ? 'wR' : 'bR',
+        'b': color === 'w' ? 'wB' : 'bB',
+        'n': color === 'w' ? 'wN' : 'bN',
+        'p': color === 'w' ? 'wP' : 'bP'
     };
-    return symbols[type];
+    return map[type];
 }
 
 function drawBoard() {
@@ -236,7 +340,15 @@ function drawBoard() {
             square.classList.add('square');
             square.classList.add((i + j) % 2 === 0 ? 'light' : 'dark');
             const piece = board[i][j];
-            square.textContent = piece ? getPieceSymbol(piece.type, piece.color) : '';
+            if (piece) {
+                const img = document.createElement('img');
+                const code = getPieceCodeSVG(piece.type, piece.color);
+                img.src = `https://lichess1.org/assets/piece/cburnett/${code}.svg`;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'contain';
+                square.appendChild(img);
+            }
             square.dataset.row = i;
             square.dataset.col = j;
             boardDiv.appendChild(square);
@@ -260,7 +372,6 @@ function updateGameStatus() {
 }
 
 let selectedSquare = null;
-
 function highlightSelectedSquare(row, col) {
     clearHighlight();
     const boardDiv = document.getElementById('chessboard');
@@ -276,37 +387,22 @@ function handleSquareTap(e) {
     if (!squareDiv) return;
     if (!currentGameId) return;
     if (game.game_over()) return;
-
-    const turn = game.turn(); // 'w' ili 'b'
-    let myTurn = false;
-    if (myColor === 'white' && turn === 'w') myTurn = true;
-    if (myColor === 'black' && turn === 'b') myTurn = true;
-
-    if (!myTurn) {
-        alert(`Niste na potezu! (myColor=${myColor}, turn=${turn})`);
-        return;
-    }
-
+    const turn = game.turn();
+    let myTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+    if (!myTurn) { alert("Niste na potezu!"); return; }
     const row = parseInt(squareDiv.dataset.row);
     const col = parseInt(squareDiv.dataset.col);
     const file = String.fromCharCode(97 + col);
     const rank = 8 - row;
     const square = file + rank;
-
     if (selectedSquare === null) {
         const piece = game.get(square);
         if (piece && ((myColor === 'white' && piece.color === 'w') || (myColor === 'black' && piece.color === 'b'))) {
             selectedSquare = square;
             highlightSelectedSquare(row, col);
-        } else {
-            alert("To nije vaša figura!");
-        }
+        } else alert("To nije vaša figura!");
     } else {
-        const move = game.move({
-            from: selectedSquare,
-            to: square,
-            promotion: 'q'
-        });
+        const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
         if (move) {
             ws.send(JSON.stringify({
                 type: "move",
@@ -317,10 +413,8 @@ function handleSquareTap(e) {
             }));
             drawBoard();
             updateGameStatus();
-            updateDebugInfo();
-        } else {
-            alert("Nelegalan potez");
-        }
+            // Sat se menja na drugu stranu (automatski preko handleWebSocketMessage)
+        } else alert("Nelegalan potez");
         selectedSquare = null;
         clearHighlight();
     }
@@ -346,7 +440,7 @@ function appendGameChatMessage(sender, msg) {
     chatDiv.scrollTop = chatDiv.scrollHeight;
 }
 
-// ==================== AUTH ====================
+// ==================== AUTH I INICIJALIZACIJA ====================
 async function login(email, password) {
     try {
         const data = await apiRequest('POST', '/auth/login', { email, password });
@@ -354,8 +448,23 @@ async function login(email, password) {
         const userData = await apiRequest('GET', '/users/me');
         currentUser = userData;
         connectWebSocket();
+        document.getElementById('main-interface').style.display = 'block';
         showView('lobby-view');
         document.getElementById('lobby-error').innerText = '';
+        loadProfile();
+        loadTournaments();
+        // Navigacija
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const viewId = btn.getAttribute('data-view');
+                showView(viewId);
+                if (viewId === 'tournament-view') loadTournaments();
+                if (viewId === 'profile-view') loadProfile();
+            });
+        });
+        document.getElementById('close-tournament').addEventListener('click', () => {
+            document.getElementById('tournament-detail').style.display = 'none';
+        });
     } catch (err) {
         document.getElementById('auth-error').innerText = 'Pogrešan email ili lozinka';
     }
@@ -383,13 +492,15 @@ document.getElementById('logout-btn').addEventListener('click', () => {
     token = null;
     currentUser = null;
     if (ws) ws.close();
+    document.getElementById('main-interface').style.display = 'none';
     showView('auth-view');
 });
 document.getElementById('exit-game-btn').addEventListener('click', () => {
     currentGameId = null;
+    if (clockInterval) clearInterval(clockInterval);
     showView('lobby-view');
 });
-
+// Chat
 document.getElementById('send-chat').addEventListener('click', () => {
     const input = document.getElementById('chat-input');
     if (input.value.trim() && ws) {
@@ -403,6 +514,27 @@ document.getElementById('send-game-chat').addEventListener('click', () => {
         ws.send(JSON.stringify({ type: "game_chat", game_id: currentGameId, content: input.value }));
         input.value = '';
     }
+});
+// Profile picture upload
+document.getElementById('upload-pic-btn').addEventListener('click', () => {
+    document.getElementById('profile-pic-input').click();
+});
+document.getElementById('profile-pic-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('profile_picture', file);
+    try {
+        const response = await fetch('/users/me/profile_picture', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        if (response.ok) {
+            alert('Slika postavljena');
+            loadProfile();
+        } else alert('Greška pri upload-u');
+    } catch (err) { alert('Greška: ' + err); }
 });
 
 showView('auth-view');

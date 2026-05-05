@@ -9,7 +9,7 @@
 </head>
 <body>
     <div id="app">
-        <!-- Login / Register forma -->
+        <!-- Auth -->
         <div id="auth-view" class="view active">
             <h2>Prijava</h2>
             <input type="email" id="login-email" placeholder="Email">
@@ -29,52 +29,87 @@
             <div id="reg-error" class="error"></div>
         </div>
 
-        <!-- Lobby -->
-        <div id="lobby-view" class="view">
-            <div class="header">
-                <h2>Lobi</h2>
+        <!-- Glavni interfejs (prikazuje se nakon logovanja) -->
+        <div id="main-interface" style="display: none;">
+            <div id="navbar" style="text-align: center; margin-bottom: 10px;">
+                <button class="nav-btn" data-view="lobby-view">Lobi</button>
+                <button class="nav-btn" data-view="tournament-view">Turniri</button>
+                <button class="nav-btn" data-view="profile-view">Profil</button>
                 <button id="logout-btn">Odjava</button>
             </div>
-            <div class="online-users">
-                <h3>Online korisnici</h3>
-                <ul id="users-list"></ul>
-            </div>
-            <div class="challenges">
-                <h3>Izazovi</h3>
-                <ul id="challenges-list"></ul>
-            </div>
-            <div class="chat">
-                <h3>Chat</h3>
-                <div id="chat-messages"></div>
-                <input type="text" id="chat-input" placeholder="Poruka...">
-                <button id="send-chat">Pošalji</button>
-            </div>
-            <div id="lobby-error" class="error"></div>
-        </div>
 
-        <!-- Šahovska tabla (igra) -->
-        <div id="game-view" class="view">
-            <div class="game-header">
-                <span id="game-opponent"></span>
-                <button id="exit-game-btn">Napusti igru</button>
+            <!-- LOBBY -->
+            <div id="lobby-view" class="view">
+                <div class="online-users">
+                    <h3>Online korisnici</h3>
+                    <ul id="users-list"></ul>
+                </div>
+                <div class="challenges">
+                    <h3>Izazovi</h3>
+                    <ul id="challenges-list"></ul>
+                </div>
+                <div class="chat">
+                    <h3>Chat</h3>
+                    <div id="chat-messages"></div>
+                    <input type="text" id="chat-input" placeholder="Poruka...">
+                    <button id="send-chat">Pošalji</button>
+                </div>
             </div>
-            <div id="chessboard"></div>
-            <div id="game-status"></div>
-            <div id="debug-info" style="font-size: 14px; color: lightgray; text-align: center; margin-top: 10px;"></div>
-            <div id="game-chat-messages"></div>
-            <input type="text" id="game-chat-input" placeholder="Chat u igri...">
-            <button id="send-game-chat">Pošalji</button>
-        </div>
 
-        <!-- Modal za prikaz rezultata -->
-        <div id="result-modal" class="modal">
-            <div class="modal-content">
-                <h2 id="result-title"></h2>
-                <p id="result-message"></p>
-                <button id="result-ok">OK</button>
+            <!-- TURNIRI -->
+            <div id="tournament-view" class="view">
+                <h2>🏆 Turniri</h2>
+                <div id="tournament-list"></div>
+                <div id="tournament-detail" style="display: none;">
+                    <h3 id="tournament-name"></h3>
+                    <div id="tournament-matches"></div>
+                    <div id="tournament-standings"></div>
+                    <button id="close-tournament">Zatvori</button>
+                </div>
+            </div>
+
+            <!-- PROFIL -->
+            <div id="profile-view" class="view">
+                <h2>👤 Moj profil</h2>
+                <img id="profile-pic" src="" alt="Profilna slika" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover;">
+                <div>
+                    <button id="upload-pic-btn">Postavi sliku</button>
+                    <input type="file" id="profile-pic-input" accept="image/*" style="display: none;">
+                </div>
+                <p><strong>Korisničko ime:</strong> <span id="profile-username"></span></p>
+                <p><strong>Rejting:</strong> <span id="profile-rating"></span></p>
+                <p><strong>Pobede:</strong> <span id="profile-wins"></span> &nbsp;| <strong>Porazi:</strong> <span id="profile-losses"></span> &nbsp;| <strong>Remiji:</strong> <span id="profile-draws"></span></p>
+                <p><strong>Ukupno partija:</strong> <span id="profile-total"></span></p>
+            </div>
+
+            <!-- IGRA (tabla + sat) -->
+            <div id="game-view" class="view">
+                <div class="game-header">
+                    <span id="game-opponent"></span>
+                    <button id="exit-game-btn">Napusti igru</button>
+                </div>
+                <div class="clock-container">
+                    <div class="clock white-clock">Beli: <span id="white-time">90:00</span></div>
+                    <div class="clock black-clock">Crni: <span id="black-time">90:00</span></div>
+                </div>
+                <div id="chessboard"></div>
+                <div id="game-status"></div>
+                <div id="game-chat-messages"></div>
+                <input type="text" id="game-chat-input" placeholder="Chat u igri...">
+                <button id="send-game-chat">Pošalji</button>
             </div>
         </div>
     </div>
+
+    <!-- Modal za rezultat -->
+    <div id="result-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="result-title"></h2>
+            <p id="result-message"></p>
+            <button id="result-ok">OK</button>
+        </div>
+    </div>
+
     <script src="/static/script.js"></script>
 </body>
 </html>
