@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, Boolean, Enum, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -104,46 +104,48 @@ class Move(Base):
     game = relationship("Game", back_populates="moves")
 
 
+# Dodaj u postojeći models.py
+
 class Tournament(Base):
     __tablename__ = "tournaments"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(200), nullable=False)
-    organizer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type = Column(Enum("knockout", "round_robin", "swiss", name="tournament_type"))
-    status = Column(Enum("registration", "in_progress", "completed", name="tournament_status"), default="registration")
-    start_date = Column(DateTime(timezone=True))
-    max_players = Column(Integer)
-    current_round = Column(Integer, default=0)
-    settings = Column(JSON)  # time control, tie-break pravila
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    status = Column(String, default="open")  # open, started, finished
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    rounds = Column(Integer, default=1)  # broj rundi (za round-robin ne, za eliminacioni da)
 
-    participants = relationship("TournamentParticipant", back_populates="tournament")
+    players = relationship("TournamentPlayer", back_populates="tournament")
     matches = relationship("TournamentMatch", back_populates="tournament")
 
+class TournamentPlayer(Base):
+    __tablename__ = "tournament_players"
+    id = Column(Integer, primary_key=True, index=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    joined_at = Column(DateTime, default=datetime.utcnow)
+    wins = Column(Integer, default=0)
+    losses = Column(Integer, default=0)
+    draws = Column(Integer, default=0)
+    points = Column(Float, default=0.0)  # 1 za pobedu, 0.5 za remi
 
-class TournamentParticipant(Base):
-    __tablename__ = "tournament_participants"
-    tournament_id = Column(Integer, ForeignKey("tournaments.id"), primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
-    seed = Column(Integer)  # random redosled za žreb
-    points = Column(Integer, default=0)  # za Swiss
-
-    tournament = relationship("Tournament", back_populates="participants")
-    user = relationship("User", back_populates="tournament_participations")
-
+    tournament = relationship("Tournament", back_populates="players")
+    user = relationship("User")
 
 class TournamentMatch(Base):
     __tablename__ = "tournament_matches"
     id = Column(Integer, primary_key=True, index=True)
-    tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False, index=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"))
     round = Column(Integer, nullable=False)
-    white_player_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    black_player_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=True)
-    status = Column(Enum("scheduled", "ongoing", "completed", name="match_status"), default="scheduled")
-    result = Column(Enum("white", "black", "draw", name="match_result"), nullable=True)
-    scheduled_time = Column(DateTime(timezone=True))
+    player1_id = Column(Integer, ForeignKey("users.id"))
+    player2_id = Column(Integer, ForeignKey("users.id"))
+    result = Column(String, nullable=True)  # "player1", "player2", "draw"
+    played = Column(Boolean, default=False)
 
     tournament = relationship("Tournament", back_populates="matches")
+    player1 = relationship("User", foreign_keys=[player1_id])
+    player2 = relationship("User", foreign_keys=[player2_id])
 
 
 # ========== NOVE KLASE (DODATE NA KRAJ) ==========
@@ -185,3 +187,4 @@ class TournamentParticipantLive(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     seed = Column(Integer)
     current_score = Column(Integer, default=0)
+

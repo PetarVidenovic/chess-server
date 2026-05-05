@@ -6,6 +6,8 @@ from app.routes import auth, users, friends, chat, challenges, games, matchmakin
 from app.database import engine, Base
 from app import models  # uvozi sve modele
 
+app.include_router(tournaments.router)
+
 app = FastAPI(title="Chess Server", version="1.0")
 
 app.add_middleware(

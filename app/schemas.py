@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, validator
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -47,6 +47,8 @@ class MessageOut(BaseModel):
 # ===== Šeme za turnire =====
 class TournamentCreate(BaseModel):
     name: str
+    description: Optional[str] = None
+    rounds: int = 1
     type: str  # "knockout", "round_robin", "swiss"
     max_players: int
     settings: dict = {}
@@ -54,12 +56,30 @@ class TournamentCreate(BaseModel):
 class TournamentOut(BaseModel):
     id: int
     name: str
-    type: str
+    description: Optional[str]
     status: str
-    max_players: int
-    current_round: int
-    settings: dict
+    players_count: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+class TournamentPlayerOut(BaseModel):
+    user_id: int
+    username: str
+    wins: int
+    losses: int
+    draws: int
+    points: float
+
+class TournamentMatchOut(BaseModel):
+    id: int
+    round: int
+    player1: str
+    player2: str
+    result: Optional[str]
+    played: bool
+
+class TournamentDetailOut(BaseModel):
+    id: int
+    name: str
+    status: str
+    matches: List[TournamentMatchOut]
+    standings: List[TournamentPlayerOut]
