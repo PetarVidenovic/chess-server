@@ -35,10 +35,8 @@ class User(Base):
     games_as_black = relationship("Game", foreign_keys="Game.black_player_id", back_populates="black_player")
     tournament_participations = relationship("TournamentParticipant", back_populates="user")
 
-
 class Friend(Base):
     __tablename__ = "friends"
-    # Kombinovani primarni ključ (user_id, friend_id)
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     friend_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     status = Column(Enum("pending", "accepted", "blocked", name="friend_status"), default="pending")
@@ -46,7 +44,6 @@ class Friend(Base):
 
     user = relationship("User", foreign_keys=[user_id], back_populates="sent_friend_requests")
     friend = relationship("User", foreign_keys=[friend_id], back_populates="received_friend_requests")
-
 
 class Message(Base):
     __tablename__ = "messages"
@@ -60,19 +57,17 @@ class Message(Base):
     sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_messages")
     receiver = relationship("User", foreign_keys=[receiver_id], back_populates="received_messages")
 
-
 class Challenge(Base):
     __tablename__ = "challenges"
     id = Column(Integer, primary_key=True, index=True)
     challenger_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     opponent_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(Enum("pending", "accepted", "declined", "expired", name="challenge_status"), default="pending")
-    time_control = Column(JSON)  # npr. {"initial": 300, "increment": 3}
+    time_control = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     challenger = relationship("User", foreign_keys=[challenger_id], back_populates="sent_challenges")
     opponent = relationship("User", foreign_keys=[opponent_id], back_populates="received_challenges")
-
 
 class Game(Base):
     __tablename__ = "games"
@@ -90,7 +85,6 @@ class Game(Base):
     black_player = relationship("User", foreign_keys=[black_player_id], back_populates="games_as_black")
     moves = relationship("Move", back_populates="game")
 
-
 class Move(Base):
     __tablename__ = "moves"
     id = Column(Integer, primary_key=True, index=True)
@@ -103,18 +97,16 @@ class Move(Base):
 
     game = relationship("Game", back_populates="moves")
 
-
-# Dodaj u postojeći models.py
-
+# ========== TURNIRSKI MODELI ==========
 class Tournament(Base):
     __tablename__ = "tournaments"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
-    status = Column(String, default="open")  # open, started, finished
-    created_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, default="open")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by = Column(Integer, ForeignKey("users.id"))
-    rounds = Column(Integer, default=1)  # broj rundi (za round-robin ne, za eliminacioni da)
+    rounds = Column(Integer, default=1)
 
     players = relationship("TournamentPlayer", back_populates="tournament")
     matches = relationship("TournamentMatch", back_populates="tournament")
@@ -124,11 +116,11 @@ class TournamentPlayer(Base):
     id = Column(Integer, primary_key=True, index=True)
     tournament_id = Column(Integer, ForeignKey("tournaments.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
-    joined_at = Column(DateTime, default=datetime.utcnow)
+    joined_at = Column(DateTime(timezone=True), server_default=func.now())
     wins = Column(Integer, default=0)
     losses = Column(Integer, default=0)
     draws = Column(Integer, default=0)
-    points = Column(Float, default=0.0)  # 1 za pobedu, 0.5 za remi
+    points = Column(Float, default=0.0)
 
     tournament = relationship("Tournament", back_populates="players")
     user = relationship("User")
@@ -140,24 +132,21 @@ class TournamentMatch(Base):
     round = Column(Integer, nullable=False)
     player1_id = Column(Integer, ForeignKey("users.id"))
     player2_id = Column(Integer, ForeignKey("users.id"))
-    result = Column(String, nullable=True)  # "player1", "player2", "draw"
+    result = Column(String, nullable=True)
     played = Column(Boolean, default=False)
 
     tournament = relationship("Tournament", back_populates="matches")
     player1 = relationship("User", foreign_keys=[player1_id])
     player2 = relationship("User", foreign_keys=[player2_id])
 
-
-# ========== NOVE KLASE (DODATE NA KRAJ) ==========
-
+# ========== NOVE KLASE ==========
 class FriendRequest(Base):
     __tablename__ = "friend_requests"
     id = Column(Integer, primary_key=True, index=True)
     from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    status = Column(String, default="pending")  # pending, accepted, declined
+    status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
 
 class GameOpening(Base):
     __tablename__ = "game_openings"
@@ -167,18 +156,16 @@ class GameOpening(Base):
     count = Column(Integer, default=0)
     as_white = Column(Boolean)
 
-
 class TournamentLive(Base):
     __tablename__ = "tournaments_live"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
-    status = Column(String, default="pending")  # pending, active, finished
+    status = Column(String, default="pending")
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     max_players = Column(Integer)
     current_round = Column(Integer, default=0)
-    bracket = Column(JSON)  # čuva strukturu turnira (parovi)
-
+    bracket = Column(JSON)
 
 class TournamentParticipantLive(Base):
     __tablename__ = "tournament_participants_live"
@@ -187,4 +174,3 @@ class TournamentParticipantLive(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     seed = Column(Integer)
     current_score = Column(Integer, default=0)
-
