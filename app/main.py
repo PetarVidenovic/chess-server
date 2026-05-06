@@ -1,12 +1,10 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles      # DODATO
-from fastapi.responses import HTMLResponse       # DODATO
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from app.routes import auth, users, friends, chat, challenges, games, matchmaking, tournaments, leaderboard, ws
 from app.database import engine, Base
-from app import models  # uvozi sve modele
-
-app.include_router(tournaments.router)
+from app import models
 
 app = FastAPI(title="Chess Server", version="1.0")
 
@@ -18,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Prvo definiši app, pa TEK ONDA dodaj rute
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(friends.router)
@@ -25,7 +24,7 @@ app.include_router(chat.router)
 app.include_router(challenges.router)
 app.include_router(games.router)
 #app.include_router(matchmaking.router)
-app.include_router(tournaments.router)
+app.include_router(tournaments.router)   # <-- OVO MORA BITI NAKON app = FastAPI(...)
 app.include_router(ws.router)  
 app.include_router(leaderboard.router)
 
@@ -36,8 +35,7 @@ async def startup_event():
     await init_db()
     print("Tabele su kreirane (ili već postoje)")
 
-# ========== DODATAK ZA VEB KLIJENTA (STATIČKI FAJLOVI) ==========
-# Montiraj folder static/ na putanju /static
+# Montiraj statičke fajlove (na kraj)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
