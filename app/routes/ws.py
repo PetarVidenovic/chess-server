@@ -192,7 +192,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "turn": turn
                         })
 
-            # ========== REZULTAT PARTIJE (za ELO) ==========
+            # ========== REZULTAT PARTIJE (za ELO i statistiku) ==========
             elif msg_type == "game_result":
                 game_id = data.get("game_id")
                 winner_id = data.get("winner_id")
@@ -240,7 +240,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             "result": "resign",
                             "winner": "opponent"
                         })
-                    # Ažuriraj rejting
+                    # Ažuriraj rejting i statistiku (pobednik je protivnik, gubitnik je user)
                     async for db in get_db():
                         await update_ratings(db, opponent_id, user.id, draw=False)
                         break
