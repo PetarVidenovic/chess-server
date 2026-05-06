@@ -33,7 +33,8 @@ class User(Base):
     received_challenges = relationship("Challenge", foreign_keys="Challenge.opponent_id", back_populates="opponent")
     games_as_white = relationship("Game", foreign_keys="Game.white_player_id", back_populates="white_player")
     games_as_black = relationship("Game", foreign_keys="Game.black_player_id", back_populates="black_player")
-    tournament_participations = relationship("TournamentParticipant", back_populates="user")
+    # ISPRAVLJENO: TournamentParticipant → TournamentPlayer
+    tournament_participations = relationship("TournamentPlayer", back_populates="user")
 
 class Friend(Base):
     __tablename__ = "friends"
@@ -104,7 +105,7 @@ class Tournament(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     status = Column(String, default="open")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())  # ISPRAVLJENO
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by = Column(Integer, ForeignKey("users.id"))
     rounds = Column(Integer, default=1)
 
@@ -116,14 +117,14 @@ class TournamentPlayer(Base):
     id = Column(Integer, primary_key=True, index=True)
     tournament_id = Column(Integer, ForeignKey("tournaments.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
-    joined_at = Column(DateTime(timezone=True), server_default=func.now())  # ISPRAVLJENO
+    joined_at = Column(DateTime(timezone=True), server_default=func.now())
     wins = Column(Integer, default=0)
     losses = Column(Integer, default=0)
     draws = Column(Integer, default=0)
     points = Column(Float, default=0.0)
 
     tournament = relationship("Tournament", back_populates="players")
-    user = relationship("User")
+    user = relationship("User", back_populates="tournament_participations")
 
 class TournamentMatch(Base):
     __tablename__ = "tournament_matches"
