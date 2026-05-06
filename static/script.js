@@ -13,19 +13,21 @@ let lastSentChallengeTo = null;
 let lastReceivedChallengeFrom = null;
 
 // SAT (90 minuta = 5400 sekundi)
-let whiteTime = 5400;   // sekunde
+let whiteTime = 5400;
 let blackTime = 5400;
 let clockInterval = null;
-let currentTurnTimeStart = null;
+let activeClockColor = null; // koja boja trenutno odbrojava
 
 // ==================== POMOĆNE FUNKCIJE ====================
 function showView(viewId) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.getElementById(viewId).classList.add('active');
+    const target = document.getElementById(viewId);
+    if (target) target.classList.add('active');
 }
 
 function showResultModal(title, message) {
     const modal = document.getElementById('result-modal');
+    if (!modal) return;
     document.getElementById('result-title').innerText = title;
     document.getElementById('result-message').innerText = message;
     modal.style.display = 'flex';
@@ -81,7 +83,6 @@ function handleWebSocketMessage(data) {
     }
     else if (type === "challenge_accepted" || type === "match_found") {
         currentGameId = data.game_id;
-        // Odredi boju lokalno ili sa servera
         const opponentId = data.opponent_id;
         if (lastSentChallengeTo === opponentId) myColor = 'white';
         else if (lastReceivedChallengeFrom === opponentId) myColor = 'black';
@@ -92,19 +93,13 @@ function handleWebSocketMessage(data) {
     }
     else if (type === "move" || type === "game_state") {
         if (data.game_id === currentGameId && data.fen) {
-            // Zaustavi trenutni sat
             if (clockInterval) clearInterval(clockInterval);
-            // Ažuriraj tablu
             game = new Chess(data.fen);
             drawBoard();
             updateGameStatus();
-            // Promeni sat: switch turn
             const turn = game.turn();
-            if (turn === 'w') {
-                if (clockInterval) startClock('white');
-            } else {
-                if (clockInterval) startClock('black');
-            }
+            if (turn === 'w') startClock('white');
+            else startClock('black');
             updateClockDisplay();
         }
     }
@@ -133,45 +128,67 @@ function handleWebSocketMessage(data) {
     }
 }
 
-// Sat
+// ==================== SAT (TAČNO ODBROJAVANJE 90 MINUTA) ====================
 function startClock(color) {
-    if (clockInterval) clearInterval(clockInterval);
+    if (clockInterval) {
+        clearInterval(clockInterval);
+        clockInterval = null;
+    }
+    activeClockColor = color;
     const startTime = Date.now();
+    const startWhite = whiteTime;
+    const startBlack = blackTime;
+    
     clockInterval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;
-        if (color === 'white') {
-            whiteTime = Math.max(0, whiteTime - elapsed);
-            if (whiteTime <= 0) { whiteTime = 0; clearInterval(clockInterval); gameOverByTime('white'); }
+        if (activeClockColor === 'white') {
+            whiteTime = Math.max(0, startWhite - elapsed);
+            if (whiteTime <= 0) {
+                whiteTime = 0;
+                clearInterval(clockInterval);
+                clockInterval = null;
+                gameOverByTime('white');
+            }
         } else {
-            blackTime = Math.max(0, blackTime - elapsed);
-            if (blackTime <= 0) { blackTime = 0; clearInterval(clockInterval); gameOverByTime('black'); }
+            blackTime = Math.max(0, startBlack - elapsed);
+            if (blackTime <= 0) {
+                blackTime = 0;
+                clearInterval(clockInterval);
+                clockInterval = null;
+                gameOverByTime('black');
+            }
         }
         updateClockDisplay();
     }, 100);
 }
+
 function updateClockDisplay() {
     const format = (sec) => {
         const mins = Math.floor(sec / 60);
-        const remainSec = sec % 60;
-        return `${mins}:${remainSec < 10 ? '0'+remainSec : remainSec}`;
+        const remainSec = Math.floor(sec % 60);
+        return `${mins}:${remainSec < 10 ? '0' + remainSec : remainSec}`;
     };
-    document.getElementById('white-time').innerText = format(whiteTime);
-    document.getElementById('black-time').innerText = format(blackTime);
+    const whiteElem = document.getElementById('white-time');
+    const blackElem = document.getElementById('black-time');
+    if (whiteElem) whiteElem.innerText = format(whiteTime);
+    if (blackElem) blackElem.innerText = format(blackTime);
 }
+
 function gameOverByTime(color) {
-    // color je koji je ostao bez vremena
     if (!currentGameId) return;
     const winner = (color === 'white') ? 'black' : 'white';
     const result = (winner === myColor) ? "Pobeda (vreme)!" : "Poraz (vreme)";
     showResultModal(result, "Protivnik je ostao bez vremena.");
-    // Pošalji resign poruku serveru?
-    ws.send(JSON.stringify({ type: "resign", game_id: currentGameId }));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "resign", game_id: currentGameId }));
+    }
     currentGameId = null;
 }
 
 // ==================== LOBBY ====================
 function renderOnlineUsers() {
     const container = document.getElementById('users-list');
+    if (!container) return;
     container.innerHTML = '';
     onlineUsers.forEach(user => {
         const li = document.createElement('li');
@@ -193,6 +210,7 @@ function renderOnlineUsers() {
 
 function renderChallenges() {
     const container = document.getElementById('challenges-list');
+    if (!container) return;
     container.innerHTML = '';
     pendingChallenges.forEach(ch => {
         const li = document.createElement('li');
@@ -230,6 +248,7 @@ async function loadTournaments() {
     try {
         const tournaments = await apiRequest('GET', '/tournaments/');
         const container = document.getElementById('tournament-list');
+        if (!container) return;
         container.innerHTML = '';
         for (let t of tournaments) {
             const card = document.createElement('div');
@@ -306,7 +325,6 @@ function startGame(opponentName) {
     blackTime = 5400;
     updateClockDisplay();
     if (clockInterval) clearInterval(clockInterval);
-    // Ko prvi igra? Ako je myColor = white, startuj beli sat
     if (myColor === 'white') startClock('white');
     else startClock('black');
     showView('game-view');
@@ -413,7 +431,6 @@ function handleSquareTap(e) {
             }));
             drawBoard();
             updateGameStatus();
-            // Sat se menja na drugu stranu (automatski preko handleWebSocketMessage)
         } else alert("Nelegalan potez");
         selectedSquare = null;
         clearHighlight();
@@ -448,12 +465,13 @@ async function login(email, password) {
         const userData = await apiRequest('GET', '/users/me');
         currentUser = userData;
         connectWebSocket();
-        document.getElementById('main-interface').style.display = 'block';
+        const mainInterface = document.getElementById('main-interface');
+        if (mainInterface) mainInterface.style.display = 'block';
         showView('lobby-view');
-        document.getElementById('lobby-error').innerText = '';
+        const lobbyError = document.getElementById('lobby-error');
+        if (lobbyError) lobbyError.innerText = '';
         loadProfile();
         loadTournaments();
-        // Navigacija
         document.querySelectorAll('.nav-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const viewId = btn.getAttribute('data-view');
@@ -462,79 +480,117 @@ async function login(email, password) {
                 if (viewId === 'profile-view') loadProfile();
             });
         });
-        document.getElementById('close-tournament').addEventListener('click', () => {
-            document.getElementById('tournament-detail').style.display = 'none';
-        });
+        const closeTournament = document.getElementById('close-tournament');
+        if (closeTournament) {
+            closeTournament.addEventListener('click', () => {
+                document.getElementById('tournament-detail').style.display = 'none';
+            });
+        }
     } catch (err) {
-        document.getElementById('auth-error').innerText = 'Pogrešan email ili lozinka';
+        const authError = document.getElementById('auth-error');
+        if (authError) authError.innerText = 'Pogrešan email ili lozinka';
     }
 }
 
 async function register(email, username, password) {
     try {
         await apiRequest('POST', '/auth/register', { email, username, password });
-        document.getElementById('reg-error').innerText = '';
+        const regError = document.getElementById('reg-error');
+        if (regError) regError.innerText = '';
         showView('auth-view');
     } catch (err) {
-        document.getElementById('reg-error').innerText = 'Registracija nije uspela';
+        const regError = document.getElementById('reg-error');
+        if (regError) regError.innerText = 'Registracija nije uspela';
     }
 }
 
-document.getElementById('login-btn').addEventListener('click', () => {
-    login(document.getElementById('login-email').value, document.getElementById('login-password').value);
-});
-document.getElementById('show-register').addEventListener('click', () => showView('register-view'));
-document.getElementById('show-login').addEventListener('click', () => showView('auth-view'));
-document.getElementById('register-btn').addEventListener('click', () => {
-    register(document.getElementById('reg-email').value, document.getElementById('reg-username').value, document.getElementById('reg-password').value);
-});
-document.getElementById('logout-btn').addEventListener('click', () => {
-    token = null;
-    currentUser = null;
-    if (ws) ws.close();
-    document.getElementById('main-interface').style.display = 'none';
-    showView('auth-view');
-});
-document.getElementById('exit-game-btn').addEventListener('click', () => {
-    currentGameId = null;
-    if (clockInterval) clearInterval(clockInterval);
-    showView('lobby-view');
-});
-// Chat
-document.getElementById('send-chat').addEventListener('click', () => {
-    const input = document.getElementById('chat-input');
-    if (input.value.trim() && ws) {
-        ws.send(JSON.stringify({ type: "chat", content: input.value }));
-        input.value = '';
-    }
-});
-document.getElementById('send-game-chat').addEventListener('click', () => {
-    const input = document.getElementById('game-chat-input');
-    if (input.value.trim() && ws && currentGameId) {
-        ws.send(JSON.stringify({ type: "game_chat", game_id: currentGameId, content: input.value }));
-        input.value = '';
-    }
-});
-// Profile picture upload
-document.getElementById('upload-pic-btn').addEventListener('click', () => {
-    document.getElementById('profile-pic-input').click();
-});
-document.getElementById('profile-pic-input').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('profile_picture', file);
-    try {
-        const response = await fetch('/users/me/profile_picture', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: formData
-        });
-        if (response.ok) {
-            alert('Slika postavljena');
-            loadProfile();
-        } else alert('Greška pri upload-u');
-    } catch (err) { alert('Greška: ' + err); }
-});
+// Event listeneri (sa proverom da elementi postoje)
+const loginBtn = document.getElementById('login-btn');
+if (loginBtn) {
+    loginBtn.addEventListener('click', () => {
+        const email = document.getElementById('login-email').value;
+        const pass = document.getElementById('login-password').value;
+        login(email, pass);
+    });
+}
+const showRegister = document.getElementById('show-register');
+if (showRegister) showRegister.addEventListener('click', () => showView('register-view'));
+const showLogin = document.getElementById('show-login');
+if (showLogin) showLogin.addEventListener('click', () => showView('auth-view'));
+const registerBtn = document.getElementById('register-btn');
+if (registerBtn) {
+    registerBtn.addEventListener('click', () => {
+        const email = document.getElementById('reg-email').value;
+        const user = document.getElementById('reg-username').value;
+        const pass = document.getElementById('reg-password').value;
+        register(email, user, pass);
+    });
+}
+const logoutBtn = document.getElementById('logout-btn');
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+        token = null;
+        currentUser = null;
+        if (ws) ws.close();
+        const mainInterface = document.getElementById('main-interface');
+        if (mainInterface) mainInterface.style.display = 'none';
+        showView('auth-view');
+    });
+}
+const exitGameBtn = document.getElementById('exit-game-btn');
+if (exitGameBtn) {
+    exitGameBtn.addEventListener('click', () => {
+        currentGameId = null;
+        if (clockInterval) clearInterval(clockInterval);
+        showView('lobby-view');
+    });
+}
+const sendChat = document.getElementById('send-chat');
+if (sendChat) {
+    sendChat.addEventListener('click', () => {
+        const input = document.getElementById('chat-input');
+        if (input && input.value.trim() && ws) {
+            ws.send(JSON.stringify({ type: "chat", content: input.value }));
+            input.value = '';
+        }
+    });
+}
+const sendGameChat = document.getElementById('send-game-chat');
+if (sendGameChat) {
+    sendGameChat.addEventListener('click', () => {
+        const input = document.getElementById('game-chat-input');
+        if (input && input.value.trim() && ws && currentGameId) {
+            ws.send(JSON.stringify({ type: "game_chat", game_id: currentGameId, content: input.value }));
+            input.value = '';
+        }
+    });
+}
+const uploadPicBtn = document.getElementById('upload-pic-btn');
+if (uploadPicBtn) {
+    uploadPicBtn.addEventListener('click', () => {
+        const picInput = document.getElementById('profile-pic-input');
+        if (picInput) picInput.click();
+    });
+}
+const profilePicInput = document.getElementById('profile-pic-input');
+if (profilePicInput) {
+    profilePicInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('profile_picture', file);
+        try {
+            const response = await fetch('/users/me/profile_picture', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            if (response.ok) {
+                alert('Slika postavljena');
+                loadProfile();
+            } else alert('Greška pri upload-u');
+        } catch (err) { alert('Greška: ' + err); }
+    });
+}
 
 showView('auth-view');
