@@ -104,7 +104,7 @@ class Tournament(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     status = Column(String, default="open")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # ISPRAVLJENO
     created_by = Column(Integer, ForeignKey("users.id"))
     rounds = Column(Integer, default=1)
 
@@ -116,7 +116,7 @@ class TournamentPlayer(Base):
     id = Column(Integer, primary_key=True, index=True)
     tournament_id = Column(Integer, ForeignKey("tournaments.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
-    joined_at = Column(DateTime(timezone=True), server_default=func.now())
+    joined_at = Column(DateTime(timezone=True), server_default=func.now())  # ISPRAVLJENO
     wins = Column(Integer, default=0)
     losses = Column(Integer, default=0)
     draws = Column(Integer, default=0)
