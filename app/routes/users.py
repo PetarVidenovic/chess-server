@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from app import schemas, auth, models
+from app import schemas, models
 from app.database import get_db
 from app.auth import get_current_user
 import os
@@ -12,7 +12,6 @@ router = APIRouter(prefix="/users", tags=["korisnici"])
 async def get_my_profile(current_user: models.User = Depends(get_current_user)):
     return current_user
 
-# NOVA RUTA: upload profilne slike
 @router.post("/me/profile_picture")
 async def upload_profile_picture(
     file: UploadFile = File(...),
@@ -23,7 +22,7 @@ async def upload_profile_picture(
     upload_dir = "static/uploads"
     os.makedirs(upload_dir, exist_ok=True)
     
-    # Sanitizuj ime fajla
+    # Generiši jedinstveno ime fajla
     ext = file.filename.split(".")[-1]
     filename = f"user_{current_user.id}_{current_user.username}.{ext}"
     file_path = os.path.join(upload_dir, filename)
@@ -32,7 +31,9 @@ async def upload_profile_picture(
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # Ažuriraj putanju u bazi (dodaj kolonu profile_picture u model User)
+    # Ažuriraj putanju u bazi (pretpostavka: model User ima kolonu profile_picture)
     current_user.profile_picture = f"/static/uploads/{filename}"
     await db.commit()
-    return {"profile_picture": current_user.profile_picture
+    
+    # Ispravljena linija – dodata zatvarajuća zagrada
+    return {"profile_picture": current_user.profile_picture}
