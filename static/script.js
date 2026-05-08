@@ -81,6 +81,10 @@ function handleWebSocketMessage(data) {
         });
         renderChallenges();
     }
+    else if (type === "profile_update") {
+          loadProfile();
+          console.log("🔄 Profil osvežen");
+    }
     else if (type === "challenge_accepted" || type === "match_found") {
         currentGameId = data.game_id;
         const opponentId = data.opponent_id;

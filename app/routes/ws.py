@@ -192,6 +192,35 @@ async def websocket_endpoint(websocket: WebSocket):
                             "turn": turn
                         })
 
+                # Provera da li je igra završena (mat)
+                import chess
+                board = chess.Board(fen)
+                if board.is_checkmate():
+                    # Odredi pobednika: ako je turn 'w', onda je beli upravo matirao crnog
+                    if turn == 'w':
+                        winner_id = user.id
+                        loser_id = opponent_id
+                    else:
+                        winner_id = opponent_id
+                        loser_id = user.id
+                    async for db in get_db():
+                        await update_ratings(db, winner_id, loser_id, draw=False)
+                        break
+                    print(f"🎉 Mat! {winner_id} je pobedio {loser_id}")
+                    # Obavesti oba igrača da osveže profil
+                    await websocket.send_json({"type": "profile_update"})
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({"type": "profile_update"})
+                elif board.is_stalemate() or board.is_insufficient_material():
+                    async for db in get_db():
+                        await update_ratings(db, user.id, opponent_id, draw=True)
+                        break
+                    print("♟️ Remi (pat ili nedostatak materijala)")
+                    # Obavesti oba igrača da osveže profil
+                    await websocket.send_json({"type": "profile_update"})
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({"type": "profile_update"})
+
             # ========== REZULTAT PARTIJE (za ELO i statistiku) ==========
             elif msg_type == "game_result":
                 game_id = data.get("game_id")
@@ -246,6 +275,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         break
                     if game_id in games_store:
                         games_store[game_id]["status"] = "finished"
+                    # Obavesti oba igrača da osveže profil
+                    await websocket.send_json({"type": "profile_update"})
+                    if opponent_info:
+                        await opponent_info["ws"].send_json({"type": "profile_update"})
 
             # ========== CHAT ==========
             elif msg_type == "chat":
