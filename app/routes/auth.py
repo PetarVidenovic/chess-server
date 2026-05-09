@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app import schemas, auth, models
 from app.database import get_db
-from app.auth import get_current_user   # uvozi iz auth.py
+from app.auth import get_current_user
 from sqlalchemy import text
 
 async def ensure_users_table(db: AsyncSession):
@@ -31,6 +31,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=schemas.UserOut)
 async def register(user: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
     print("Registracija pokušana")
+    # Osiguraj da tabela postoji
+    await ensure_users_table(db)
+    
     # provera email i username
     result = await db.execute(select(models.User).where(models.User.email == user.email))
     if result.scalar_one_or_none():
